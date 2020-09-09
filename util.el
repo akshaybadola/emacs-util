@@ -1,11 +1,11 @@
 ;;; util.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020
+;; Copyright (C) 2020
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 24 June 2020 09:16:15 AM IST>
+;; Time-stamp:	"Monday 31 August 2020 17:03:42 IST"
 ;; Keywords:	utility
 ;; Version:     0.1
 ;; Package-Requires: ((org "9.1.9") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1"))
@@ -47,6 +47,25 @@
 (require 'org)
 (require 'org-element)
 (require 'package)
+
+(defsubst cdass (elem alist)
+  "Short for (cdr (assoc ELEM) list).
+Argument ALIST association list."
+    (cdr (assoc elem alist)))
+
+(defun util/hidden-buffers (regexp &optional n)
+  "Get all hidden buffers matching REGEXP.
+Hidden buffers are those which start with a space.  When optional
+N is given, return only first N buffers.  Buffers are ordered as
+returned by `buffer-list'"
+  (let ((buffers (-filter (lambda (x)
+                            (when (and (string-match-p "^ " (buffer-name x))
+                                       (string-match-p regexp (buffer-name x)))
+                              x))
+                          (buffer-list))))
+    (if (integerp n )
+        (-take n buffers)
+      buffers)))
 
 ;; ibuffer functions
 (defun util/ibuffer-copy-full-filenames-as-kill ()
@@ -101,10 +120,29 @@ ARG can be 'time 'size or nil."
   (interactive)
   (util/dired-custom-sort nil))
 
+;; TODO: Check the time stamp format and only then update accordingly
+;;       Convert to full in same format <>, [] or "".
 (defun util/full-time-stamp ()
-  "Insert full Time Stamp."
+  "Insert or update the full Time Stamp."
   (interactive)
+  ;; get maybe-time-stamp-at-point
+  ;; when time-stamp-at-point get pattern
+  ;; backup time-stamp-format and set new one
+  ;; when override, override to new default pattern or keep existing pattern
+  ;; insert or update pattern
+  ;; restore time-stamp-format
+  ;;(let (time-stamp-format "\"%:a %2d %:b %:y %02H:%02M:%02S %Z\""))
   (insert (time-stamp-string "\"%:a %2d %:b %:y %02H:%02M:%02S %Z\"")))
+
+(defun util/goto-latest-time-stamp ()
+  "Goto the latest time-stamp.
+Like `util/org-goto-latest-timestamp' but for all buffers."
+  )
+
+(defun util/occur-sorted-timestamps ()
+  "Goto the latest time-stamp.
+Like `util/org-occur-sorted-timestamps' but for all buffers."
+  )
 
 ;; DONE: occur like mode where the timestamps are sorted from latest to oldest
 ;;     : I made it :-)
@@ -178,23 +216,30 @@ PKG or one available in package archives."
                   (if built-in
                       (package--from-builtin built-in)
                     (cadr (assq pkg package-archive-contents))))))
-         (name (if desc (package-desc-name desc) pkg))
-         (pkg-dir (if desc (package-desc-dir desc)))
-         (reqs (if desc (package-desc-reqs desc)))
-         (required-by (if desc (package--used-elsewhere-p desc nil 'all)))
-         (version (if desc (package-desc-version desc)))
-         (archive (if desc (package-desc-archive desc)))
-         (extras (and desc (package-desc-extras desc)))
-         (homepage (cdr (assoc :url extras)))
-         (commit (cdr (assoc :commit extras)))
-         (keywords (if desc (package-desc--keywords desc)))
-         (built-in (eq pkg-dir 'builtin))
-         (installable (and archive (not built-in)))
-         (status (if desc (package-desc-status desc) "orphan"))
-         (incompatible-reason (package--incompatible-p desc))
-         (signed (if desc (package-desc-signed desc)))
-         (maintainer (cdr (assoc :maintainer extras)))
-         (authors (cdr (assoc :authors extras))))
+         ;; (name (if desc (package-desc-name desc) pkg))
+         ;; (pkg-dir (if desc (package-desc-dir desc)))
+         ;; (reqs (if desc (package-desc-reqs desc)))
+         ;; (required-by (if desc (package--used-elsewhere-p desc nil 'all)))
+         ;; (version (if desc (package-desc-version desc)))
+         ;; (archive (if desc (package-desc-archive desc)))
+         ;; (extras (and desc (package-desc-extras desc)))
+         ;; (homepage (cdr (assoc :url extras)))
+         ;; (commit (cdr (assoc :commit extras)))
+         ;; (keywords (if desc (package-desc--keywords desc)))
+         ;; (built-in (eq pkg-dir 'builtin))
+         ;; (installable (and archive (not built-in)))
+         ;; (status (if desc (package-desc-status desc) "orphan"))
+         ;; (incompatible-reason (package--incompatible-p desc))
+         ;; (signed (if desc (package-desc-signed desc)))
+         ;; (maintainer (cdr (assoc :maintainer extras)))
+         ;; (authors (cdr (assoc :authors extras)))
+         )
+    ;; (cons (list :name name :pkg-dir pkg-dir :reqs reqs :required-by required-by
+    ;;             :version version :archive archive :extras extras :homepage
+    ;;             homepage :commit commit :keywords keywords :built-in built-in
+    ;;             :installable installable :status status :incompatible-reason
+    ;;             incompatible-reason :signed signed :maintainer maintainer
+    ;;             :authors authors))
     desc))
 
 ;; package utility functions
@@ -220,9 +265,39 @@ PKG-NAME-OR-SYMBOL can be a symbol or a string."
                 (cons (car x) (mapconcat #'number-to-string (cadr x) ".")))
               desc))))
 
+(defun util/package-delete-packages (pkg-list)
+  "Delete all packages given in PKG-LIST without confirmation.
+Uses `package-delete'.  PKG-LIST is a list of symbols.  Return
+the results."
+  (seq-map (lambda (x)
+             (when (assoc x package-alist)
+               (package-delete (cadr (assoc x package-alist)))))
+           pkg-list))
+
+(defun util/top-level-packages ()
+  "Return list of packages which are not a dependency."
+  (-non-nil (mapcar (lambda (x)
+                      (unless (util/package-required-by (car x)) (car x)))
+                    package-alist)))
+
+(defun util/package-version (lib)
+  "Return the library version for LIB.
+LIB can be symbol or library name.  It searches for the version
+string in the file where the library is defined"
+  (let ((str (condition-case nil
+                 (shell-command-to-string
+                  (format "grep -i \";; version\" %s"
+                          (find-library-name (if (symbolp lib) (symbol-name lib) lib))))
+               (error nil))))
+    (when str
+      (string-match ";; version: \\(.*\\)" str)
+      (when (match-string 1 str)
+        (string-trim (match-string 1 str))))))
+
 (defun util/package-required-by (pkg-name-or-symbol &optional all)
   "Return alist of symbols of installed packages which require PKG-NAME-OR-SYMBOL.
-PKG-NAME-OR-SYMBOL can be a symbol or a string."
+PKG-NAME-OR-SYMBOL can be a symbol or a string. With optional
+argument ALL, return dependent packages from archives also (not implemented)."
   (let* ((name (if (symbolp pkg-name-or-symbol)
                    pkg-name-or-symbol
                  (intern pkg-name-or-symbol)))
@@ -230,6 +305,7 @@ PKG-NAME-OR-SYMBOL can be a symbol or a string."
                          (let ((desc (cadr x)))
                            (cons (package-desc-name desc) (package-desc-reqs desc))))
                        package-alist)))
+    (when all (message "ALL not implemented"))
     (mapcar 'car (-non-nil (mapcar (lambda (x)
                                      (let ((req-names (mapcar 'car (cdr x))))
                                        (when (member name req-names) x)))
@@ -250,7 +326,7 @@ PKG-NAME-OR-SYMBOL can be a symbol or a string."
             :directory (package-desc-dir desc)
             :extras (package-desc-extras desc)))))
 
-(defun util/try-get-package-urls ()
+(defun util/package-try-get-package-urls ()
   "Try and add to kill ring if there's a package url under point.
 If a region is active then get all posssible in the region."
   (interactive)
@@ -262,13 +338,13 @@ If a region is active then get all posssible in the region."
               (narrow-to-region (region-beginning) (region-end))
               (goto-char (point-min))
               (while (not (eobp))
-                (setq url-list (push (util/try-get-package-url) url-list))
+                (setq url-list (push (util/package-try-get-package-url) url-list))
                 (forward-line))
               (message (format "%s" url-list))
               (kill-new (mapconcat (lambda (x) (format "%s" x)) url-list " ")))))
-      (kill-new (util/try-get-package-url)))))
+      (kill-new (util/package-try-get-package-url)))))
 
-(defun util/try-get-package-url ()
+(defun util/package-try-get-package-url ()
   "Try and get single a package url under point."
   (when (and (eq major-mode 'package-menu-mode))
     (let ((pkg-desc (tabulated-list-get-id (point))))
@@ -309,6 +385,7 @@ Only the REGEXP pattern is asked on the prompt."
 
 ;; FIXME: This thing is still buggy
 (defun util/python-listify-lines-in-region ()
+  "Convert lines in region to a python list."
   (interactive)
   (save-restriction
     (when (region-active-p)
@@ -324,6 +401,7 @@ Only the REGEXP pattern is asked on the prompt."
         (insert "[")))))
 
 (defun util/delete-blank-lines-in-region ()
+  "Delete all empty lines in region."
   (interactive)
   (when (region-active-p)
     (save-restriction
@@ -426,18 +504,10 @@ Only the REGEXP pattern is asked on the prompt."
 
 (defun util/path-join (&rest elements)
   "Safely concatenate path ELEMENTS in a consistent manner."
-  (concat "/" (mapconcat (lambda (x)
-                           (string-remove-prefix "/" (string-remove-suffix "/" x)))
-                         elements "/")))
-
-(defun firstn (x n)
-  "Return first N elements of a list X."
-  (butlast x (- (length x) n)))
-
-(defun butfirst (x &optional n)
-  "Return all but first N elements of a list X."
-  (let ((n (if n n 1)))
-    (last x (- (length x) n))))
+  (concat (if (string-prefix-p "~" (car elements)) "" "/" )
+          (mapconcat (lambda (x)
+                       (string-remove-prefix "/" (string-remove-suffix "/" x)))
+                     elements "/")))
 
 (defun util/max-ind (seq)
   (let* ((my/max-val 0) (my/ind -1) (my/max 0))
@@ -453,34 +523,6 @@ Only the REGEXP pattern is asked on the prompt."
 (defun util/trim (str)
   "Trims the string and replaces multiple spaces with a single one."
   (util/replace-in-string (string-trim str) "[ ]+" " "))
-
-
-;; custom replace string to work on rectangles
-(defun replace-string (from-string to-string &optional delimited start end backward
-                       region-noncontiguous-p)
-  "...
-Argument FROM-STRING input string.
-Argument TO-STRING target string."
-  (declare (interactive-only
-            "use `search-forward' and `replace-match' instead."))
-  (interactive
-   (let ((common
-          (query-replace-read-args
-           (concat "Replace"
-                   (if current-prefix-arg
-                       (if (eq current-prefix-arg '-) " backward" " word")
-                     "")
-                   " string"
-                   (if (use-region-p) " in region" ""))
-           nil)))
-     (list (nth 0 common) (nth 1 common) (nth 2 common)
-           (if (use-region-p) (region-beginning))
-           (if (use-region-p) (region-end))
-           (nth 3 common)
-           (if (use-region-p) (region-noncontiguous-p)))))
-  (perform-replace
-   from-string to-string nil nil delimited nil nil
-   start end backward region-noncontiguous-p))
 
 (defun util/replace-in-string (in what with)
   "Hackey function to replace WHAT with WITH in string IN."
@@ -640,22 +682,6 @@ Optional argument SYMBOL-LIST is used for recursion when the function calls itse
 ;;             (sphinx-doc-indent-doc indent)
 ;;             (search-forward "\"\"\""))))))
 
-
-(defun util/library-version (lib)
-  "Return the library version for LIB.
-LIB can be symbol or library name.  It searches for the version
-string in the file where the library is defined"
-  (let ((str (condition-case nil
-                 (shell-command-to-string
-                  (format "grep -i \";; version\" %s"
-                          (find-library-name (if (symbolp lib) (symbol-name lib) lib))))
-               (error nil))))
-    (when str
-      (string-match ";; version: \\(.*\\)" str)
-      (when (match-string 1 str)
-        (string-trim (match-string 1 str))))))
-
-
 (defmacro util/measure-time (&rest body)
   "Measure the time it takes to evaluate BODY."
   `(let ((time (current-time)))
@@ -760,7 +786,7 @@ list.  See `util/no-capitalize' and `util/no-capitalize-bigger'."
     result))
 
 (defun util/make-long-line ()
-  "Convert a paragraph to one long line.
+  "Convert a paragraph or region to one long line.
 Removes all spaces and newlines with a single space and removes
 space between all isolated punctuation characters and previous
 word."
@@ -779,6 +805,18 @@ word."
         (goto-char (point-min))
         (while (re-search-forward "\\(\\w\\) \\([[:punct:]] \\)" nil t nil)
           (replace-match "\\1\\2"))))))
+
+;; Copied from https://www.emacswiki.org/emacs/DisabledCommands
+(defun util/show-disabled-commands ()
+  "Show commands that were disabled."
+  (interactive)
+  (with-output-to-temp-buffer "*Commands that were disabled*"
+    (mapatoms
+     (function
+      (lambda (symbol)
+        (when (get symbol 'disabled)
+          (prin1 symbol)
+          (princ "\n")))))))
 
 (provide 'util)
 
