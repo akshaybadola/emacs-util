@@ -37,32 +37,48 @@
 
 (require 'cl-lib)
 (require 'dash)
+(require 'dash-functional)
 (require 'dired)
-(require 'ibuffer)
 (require 'grep)
-(require 'time-stamp)
-(require 'tern)
+(require 'gv)
+(require 'ibuffer)
 (require 'imenu)
-(require 'sphinx-doc)
 (require 'org)
 (require 'org-element)
 (require 'package)
+(require 'sphinx-doc)
+(require 'tern)
+(require 'time-stamp)
+
 
 (defsubst cdass (elem alist)
   "Short for (cdr (assoc ELEM) list).
 Argument ALIST association list."
     (cdr (assoc elem alist)))
 
-(defun util/hidden-buffers (regexp &optional n)
+(defun util/insert (&rest args)
+  "Insert args as strings."
+  (if (listp args)
+      (seq-do (lambda (x) (insert (format "%s\n" x)))
+              args)
+    (insert (format "%s\n" args))))
+
+(defun util/hidden-buffers (regexp &optional pred n)
   "Get all hidden buffers matching REGEXP.
-Hidden buffers are those which start with a space.  When optional
-N is given, return only first N buffers.  Buffers are ordered as
-returned by `buffer-list'"
+Hidden buffers are those which start with a space.  With optional
+PRED, call the function PRED on each buffer and return on those
+on which PRED returns non-nil.  When optional N is given, return
+only first N buffers.  Buffers are ordered as returned by
+`buffer-list'"
   (let ((buffers (-filter (lambda (x)
                             (when (and (string-match-p "^ " (buffer-name x))
                                        (string-match-p regexp (buffer-name x)))
                               x))
                           (buffer-list))))
+    (when pred
+      (setq buffers (-filter (lambda (x) (with-current-buffer x
+                                           (funcall pred)))
+                             buffers)))
     (if (integerp n )
         (-take n buffers)
       buffers)))
@@ -78,10 +94,31 @@ copying marked buffers if there are any marked buffers."
     (ibuffer-copy-filename-as-kill 0)))
 
 ;; dired functions
+;;
+;; FIXME: The region code copies the last file also even though the filename
+;;        itself may not intersect with region, which is not the same as
+;;        behaviour with mark. Should fix that.
 (defun util/dired-copy-full-filename-as-kill ()
   "Copy the full filename at point in `dired'."
   (interactive)
-  (dired-copy-filename-as-kill 0))
+  (save-excursion
+    (if (region-active-p)
+        (let ((beg (region-beginning))
+              (end (region-end))
+              files)
+          (goto-char beg)
+          (while (< (point) end)
+            ;; Skip subdir line and following garbage like the `total' line:
+            (while (and (< (point) end) (dired-between-files))
+	      (forward-line 1))
+            (when (and (not (looking-at-p dired-re-dot))
+	               (push (dired-get-filename nil t) files)))
+            (forward-line 1))
+          (when files
+            (setq files (string-join (-remove #'string-empty-p files) "\n"))
+            (kill-new files)
+            (message "%s" files)))
+      (dired-copy-filename-as-kill 0))))
 
 (defun util/dired-custom-sort (arg)
   "Sort the dired buffer according to ARG.
@@ -120,6 +157,48 @@ ARG can be 'time 'size or nil."
   (interactive)
   (util/dired-custom-sort nil))
 
+(defun util/org-time-stamp-regexp (ts-format)
+  "Return regexp for an org `time-stamp' format TS-FORMAT.
+See `time-stamp-format' for how to use the format."
+  (let ((pattern-list '(("%Y" . "[0-9]\\\\{4\\\\}")
+                        ("%m" . "[0-9]\\\\{2\\\\}")
+                        ("%d" . "[0-9]\\\\{2\\\\}")
+                        ("%a" . "[A-Z]\\\\{1\\\\}[a-z]\\\\{2\\\\}")
+                        ("%H" . "[0-9]\\\\{2\\\\}")
+                        ("%M" . "[0-9]\\\\{2\\\\}")
+                        ("<" . "[<\\\\|[]")
+                        (">" . "[]\\\\|>]"))))
+    (dolist (pattern pattern-list)
+      (setq ts-format (replace-regexp-in-string (car pattern) (cdr pattern) ts-format)))
+    ts-format))
+
+(defun util/generate-org-ts-regexp (ts-list)
+  "Generate a single regexp from a `time-stamp' formats list TS-LIST."
+  ;; Hack for converting `org-time-stamp-formats' which is a cons cell
+
+  ;; NOTE: Test to check. Should be equal
+  ;; (string= (concat "\\(" (util/org-time-stamp-regexp "<%Y-%m-%d %a>") "\\)" "\\|"
+  ;;                "\\(" (util/org-time-stamp-regexp "<%Y-%m-%d %a %H:%M>") "\\)")
+  ;;        (util/generate-org-ts-regexp org-time-stamp-formats))
+  ;;
+  ;; (string-match-p (concat "\\(" (util/org-time-stamp-regexp "<%Y-%m-%d %a>") "\\)" "\\|"
+  ;;                       "\\(" (util/org-time-stamp-regexp "<%Y-%m-%d %a %H:%M>") "\\)")
+  ;;               "[2020-09-10 Thu 10:10]")
+  ;;
+  ;; (string-match-p (util/generate-org-ts-regexp) "[2020-09-10 Thu 10:10]")
+  ;; (string-match-p (util/generate-org-ts-regexp) "[2020-09-10 Thu 10:10>")
+  ;; (string-match-p (util/generate-org-ts-regexp) "<2020-09-10 Thu 10:10>")
+  ;; (string-match-p (util/generate-org-ts-regexp) "<2020-09-10 Thu 10:10]")
+  ;; (not (string-match-p (util/generate-org-ts-regexp) "<2020-09-10 Thu 10:10a]"))
+  ;; (not (string-match-p (util/generate-org-ts-regexp) "<020-09-10 Thu 10:10a]"))
+  ;; (not (string-match-p (util/generate-org-ts-regexp) "<2020-09-10 thu 10:10a]"))
+  ;; etc.
+  (unless (listp (cdr ts-list))
+    (setq ts-list (list (car ts-list) (cdr ts-list))))
+  (mapconcat (lambda (x)
+              (concat "\\(" (util/org-time-stamp-regexp x) "\\)"))
+            ts-list "\\|"))
+
 ;; TODO: Check the time stamp format and only then update accordingly
 ;;       Convert to full in same format <>, [] or "".
 (defun util/full-time-stamp ()
@@ -135,19 +214,33 @@ ARG can be 'time 'size or nil."
   (insert (time-stamp-string "\"%:a %2d %:b %:y %02H:%02M:%02S %Z\"")))
 
 (defun util/goto-latest-time-stamp ()
-  "Goto the latest time-stamp.
+  "Goto the latest `time-stamp'.
 Like `util/org-goto-latest-timestamp' but for all buffers."
   )
 
 (defun util/occur-sorted-timestamps ()
-  "Goto the latest time-stamp.
+  "Goto the latest `time-stamp'.
 Like `util/org-occur-sorted-timestamps' but for all buffers."
   )
+
+(defvar parse-time-weekdays)
+(defun util/decode-time-stamp (ts)
+  "Similar to `decode-time' but for time stamp TS."
+  (pcase-let* ((`(,date ,day ,time) (split-string (substring ts 1 -1) " "))
+               (`(,dy ,dm ,dd) (mapcar #'string-to-number (split-string date "-")))
+               (`(,hh ,mm) (mapcar #'string-to-number (split-string time ":"))))
+    (list 0 mm hh dd dm dy (cdass (downcase day) parse-time-weekdays) nil nil)))
+
+(defun util/time-stamp-less-p (A B)
+  "Similar to `time-less-p' but for time stamps A and B."
+  (time-less-p (encode-time (util/decode-time-stamp A))
+               (encode-time (util/decode-time-stamp B))))
 
 ;; DONE: occur like mode where the timestamps are sorted from latest to oldest
 ;;     : I made it :-)
 ;; NOTE: should be (interactive P)
 ;; CHECK: Why interactive p? I've forgotten the difference
+;; FIXME: This only goes to `timestamp' and ignores clock entries
 (defun util/org-goto-latest-timestamp (&optional buf)
   "Goto latest timestamp in the current org buffer.
 If optional BUF is given then search in that instead.  By default
@@ -166,22 +259,32 @@ search only in current subtree.  With a universal argument,
                             'org-time> :key 'car))))
       (org-reveal))))
 
-(defun util/org-occur-sorted-timestamps ()
+(defun util/org-occur-sorted-timestamps (&optional ts-regexp)
   "Run `occur' in the current org buffer for timestamps.
 By default the `occur' is run for only the current subtree.  With
 a universal argument, `\\[universal-argument]' run for full
-buffer."
+buffer.  With optional TS-REGEXP, search is done for that
+regexp.  Default is to generate the regexp from
+`util/generate-org-ts-regexp'."
   (interactive)
   (save-restriction
-    (progn
+    (let ((case-fold-search nil))
       (unless current-prefix-arg
         (org-narrow-to-subtree))
-      (occur "\\[[0-9].*[0-9]\\]")
+      (unless ts-regexp
+        (setq ts-regexp (util/generate-org-ts-regexp org-time-stamp-formats)))
+      ;; NOTE: old ts-regexp
+      ;; (setq ts-regexp "\\[[0-9].*?[0-9]\\]")
+      (occur ts-regexp)
       (other-window 1)
       (read-only-mode -1)
       (goto-char 0)
       (forward-line)
-      (sort-regexp-fields -1 "^.*$" "\\[[0-9].*[0-9]\\]" (point) (buffer-end 1))
+      ;; NOTE: This may not be generally valid but We use this as the time stamp
+      ;;       is formatted YYYY-MM-DD first for us.
+      ;;       Can use `util/time-stamp-less-p'
+      ;;       I think the sorting mechanism may also have to change in that case.
+      (sort-regexp-fields -1 "^.*$" ts-regexp (point) (buffer-end 1))
       (read-only-mode))))
 
 (defun util/org-num-finished ()
@@ -194,6 +297,143 @@ buffer."
         (message (format "%s" (count-matches "\* FINISHED"))))
     (message "Not in org-mode")))
 
+(defun util/org-count-subtree-children ()
+  "Display the number of elements of immediate children of current subtree."
+  (interactive)
+  (if (eq major-mode 'org-mode)
+      (save-excursion
+        (save-restriction
+          (org-narrow-to-subtree)
+          (goto-char (point-min))
+          (let ((level (org-outline-level))
+                (children 0))
+            (while (outline-next-heading)
+              (when (= (org-outline-level) (+ level 1))
+                (cl-incf children)))
+            (message (format "Subtree has %s children" children)))))
+    (message "Not in org-mode")))
+
+(defun util/org-copy-subtree-elems (pred)
+  "Copy all children subtrees of current heading for non-nil PRED.
+PRED is a function, which is called at each subtree heading for
+each child (but no deeper).  Each child is copied as an entire
+subtree, so if there are other elements which may or may not
+satisfy PRED, they will also be copied as part of the subtree."
+  (if (eq major-mode 'org-mode)
+      (let ((count 0)
+            kill-str)
+        (save-excursion
+          (save-restriction
+            (org-narrow-to-subtree)
+            (goto-char (point-min))
+            (let ((level (org-outline-level)))
+              (while (outline-next-heading)
+                (when (= (org-outline-level) (+ level 1))
+                  (when (funcall pred)
+                    (outline-back-to-heading t)
+                    (cl-incf count)
+                    (let ((beg (progn (beginning-of-line) (point)))
+                          (end (org-end-of-subtree t)))
+                      (push (buffer-substring-no-properties beg end) kill-str))))))
+            (kill-new (mapconcat #'identity kill-str "\n"))
+            (message (format "Killed %s subtrees" count)))))
+    (message "Not in org-mode")))
+
+(defun util/org-copy-subtree-elems-with-property (&optional prop)
+  "Copy all children subtrees of current heading which have a property PROP.
+When called interactively and with a \\[universal-argument] PROP
+is input from user. It defaults to PDF_FILE if not given."
+  (interactive)
+  (if (eq major-mode 'org-mode)
+      (let ((prop (or prop (and current-prefix-arg
+                                (read-from-minibuffer "Property name: "))
+                      "PDF_FILE"))
+            (count 0)
+            kill-str)
+        (save-excursion
+          (save-restriction
+            (org-narrow-to-subtree)
+            (goto-char (point-min))
+            (let ((level (org-outline-level)))
+              (while (outline-next-heading)
+                (when (= (org-outline-level) (+ level 1))
+                  (let ((val (org-entry-get (point) prop)))
+                    (when (and val (not (string-empty-p val)))
+                      (cl-incf count)
+                      (let ((beg (progn (beginning-of-line) (point)))
+                            (end (org-end-of-subtree t)))
+                        (push (buffer-substring-no-properties beg end) kill-str)))))))
+            (kill-new (mapconcat #'identity kill-str "\n"))
+            (message (format "Copied %s subtrees" count)))))
+    (message "Not in org-mode")))
+
+(defvar util/org-simple-regexp-search-modes
+  '(emacs-lisp-mode lisp-mode python-mode javascript-mode
+                    rjsx-mode fundamental-mode text-mode)
+  "Modes for which org should do a simple regexp search.
+Used by `util/org-execute-simple-regexp-search'.")
+(defun util/org-execute-simple-regexp-search (str)
+  "Find the link search string S with a simple `re-search-forward'.
+When no function in `org-execute-file-search-functions' matches
+`org-link-search' doeesn't always search correctly in non
+`org-mode' files.  In a lot of cases a simple regexp search
+suffices.  This function does just that.  Adapated from
+`org-execute-file-search-in-bibtex'."
+  ;; modes that we want to override
+  (when (member major-mode util/org-simple-regexp-search-modes)
+    (pop-to-buffer (current-buffer))
+    (goto-char (point-min))
+    (and (re-search-forward str nil t)
+	 (goto-char (match-beginning 0)))
+    (if (match-beginning 0)
+	(let ((b (current-buffer)) (p (point)))
+	  (with-current-buffer b
+	    (goto-char p)))
+      ;; CHECK: Copied from `org-execute-file-search-in-bibtex'. Not sure
+      ;;        (recenter 0) is correct.
+      ;; Move entry start to beginning of window
+      ;; (recenter 0)
+      )
+    ;; return t to indicate that the search is done.
+    t))
+
+;; TODO: In case there are multiple matches, list all
+;; FIXME: Not sure if this is correct
+(defun util/org-execute-org-heading-max-match-search (str)
+  "Return maximum length match for minimum three words of STR of org heading"
+  (when (derived-mode-p 'org-mode)
+    (let* ((buf (current-buffer))
+           (words (split-string (string-remove-prefix "*" str) " "))
+           (title-re
+	    (format "%s.*\\(?:%s[ \t]\\)?.*%s.+"
+		    org-outline-regexp-bol
+		    org-comment-string
+		    (mapconcat #'regexp-quote (-take 3 words) ".+")))
+	   (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
+	   (comment-re (format "\\`%s[ \t]+" org-comment-string))
+           matches)
+      (with-current-buffer buf
+        ;; (switch-to-buffer buf)
+        (goto-char (point-min))
+        (while (re-search-forward title-re nil t)
+          (push (list (length (-intersection words
+		                             (split-string
+		                              (replace-regexp-in-string
+		                               cookie-re ""
+		                               (replace-regexp-in-string
+		                                comment-re "" (org-get-heading t t t))))))
+                      (point))
+	        matches))
+        (when matches
+          (goto-char (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches)))
+          (beginning-of-line)
+          ;; (recenter 0)
+
+          ;; CHECK: Why was I doing this `mapcar'?
+          ;; (mapcar #'cadr matches)
+          ))
+      matches)))
+
 (defun util/try-copy-help-buffer-link ()
   "In *Help* buffer, copy the url under point if it exists."
   (interactive)
@@ -205,10 +445,11 @@ buffer."
             (kill-new maybe-string))
         (message "No link under point")))))
 
+;; package utility functions
 (defun util/package-desc (pkg)
   "Return description of package PKG.
-Copied from `describe-package-1'.  Returns of either installed
-PKG or one available in package archives."
+Copied from `describe-package-1'.  Returns description of either
+installed PKG or one available in package archives."
   (let* ((desc (or
                 (if (package-desc-p pkg) pkg)
                 (cadr (assq pkg package-alist))
@@ -242,24 +483,54 @@ PKG or one available in package archives."
     ;;             :authors authors))
     desc))
 
-;; package utility functions
-(defun util/package-list-installed (pkg-regexp)
-  "Return a list of all installed packages which match PKG-REGEXP."
+(defun util/package-list (pkg-regexp &optional builtins archives not-installed)
+  "Return a list of packages which match PKG-REGEXP.
+By default search only in installed packages.
+
+When optional BUILTINS is non-nil, search in `package--builtins'
+also.  With non-nil ARCHIVES search in package archives also.
+Doesn't refresh the archives contents.
+
+Optional NOT-INSTALLED when non-nil is used to exclude installed
+packages from the search."
   (util/sort-symbol-list
-   (-non-nil (mapcar (lambda (x)
-                       (when (and (package-installed-p (car x))
-                                  (string-match pkg-regexp (symbol-name (car x))))
-                         (car x)))
-                     package-alist))))
+   (-uniq (-non-nil (mapcar (lambda (x) (when (string-match pkg-regexp (symbol-name (car x)))
+                                          (car x)))
+                            (-concat (and builtins package--builtins) (unless not-installed
+                                                                        package-alist)
+                                     (and archives package-archive-contents)))))))
+
+(defun util/package-list-all (pkg-regexp)
+  "Return a list of all packages which match PKG-REGEXP."
+  (util/package-list pkg-regexp t t))
+
+(defun util/package-list-installed (pkg-regexp)
+  "Return a list of only installed packages which match PKG-REGEXP."
+  (util/package-list pkg-regexp nil nil))
+
+(defun util/package-list-available (pkg-regexp)
+  "Return a list of only available packages which match PKG-REGEXP."
+  (util/package-list pkg-regexp nil t t))
+
+;; FIXME: builtins aren't being listed correctly
+;; (defun util/package-list-builtins (pkg-regexp)
+;;   "Return a list of only available packages which match PKG-REGEXP."
+;;   (util/package-list pkg-regexp t nil t))
+
+(defun util/package-list-activated (pkg-regexp)
+  "Return a list of loaded or activated packages which match PKG-REGEXP."
+  (-filter (lambda (x) (string-match-p pkg-regexp (symbol-name x))) package-activated-list))
 
 (defun util/package-requires (pkg-name-or-symbol)
-  "Return alist of symbols of installed packages required by PKG-NAME-OR-SYMBOL.
-PKG-NAME-OR-SYMBOL can be a symbol or a string."
+  "Return alist of (symbol . version) of packages required by PKG-NAME-OR-SYMBOL.
+PKG-NAME-OR-SYMBOL can be a symbol or a string and can be an
+installed or available package."
   (let* ((name (if (symbolp pkg-name-or-symbol)
                    pkg-name-or-symbol
                  (intern pkg-name-or-symbol)))
-         (desc (when (assoc name package-alist)
-                 (package-desc-reqs (cadr (assoc name package-alist))))))
+         (pkg-list (-concat package-alist package-archive-contents))
+         (desc (when (assoc name pkg-list)
+                 (package-desc-reqs (cadr (assoc name pkg-list))))))
     (when desc
       (mapcar (lambda (x)
                 (cons (car x) (mapconcat #'number-to-string (cadr x) ".")))
@@ -274,7 +545,7 @@ the results."
                (package-delete (cadr (assoc x package-alist)))))
            pkg-list))
 
-(defun util/top-level-packages ()
+(defun util/package-top-level-packages ()
   "Return list of packages which are not a dependency."
   (-non-nil (mapcar (lambda (x)
                       (unless (util/package-required-by (car x)) (car x)))
@@ -400,24 +671,44 @@ Only the REGEXP pattern is asked on the prompt."
         (goto-char (point-min))
         (insert "[")))))
 
-(defun util/delete-blank-lines-in-region ()
-  "Delete all empty lines in region."
+(defun util/delete-blank-lines-in-buffer (&optional buf no-trailing-newline)
+  "Delete all empty lines in the entire buffer BUF.
+When optional BUF is not given, defaults to current buffer."
   (interactive)
-  (when (region-active-p)
-    (save-restriction
-      (let ((beg (region-beginning))
-            (end (region-end)))
-        (narrow-to-region beg end)
-        (delete-trailing-whitespace)
-        (goto-char (point-min))
-        (while (re-search-forward "^[ ]+\n" nil t)
-          (replace-match ""))
-        (goto-char (point-min))
-        (re-search-forward "\r?\n+\n" nil t)
-        (replace-match "")
-        (while (re-search-forward "\r?\n+\n" nil t)
-          (replace-match "\n"))
-        (goto-char (point-max))))))
+  (unless buf
+    (setq buf (current-buffer)))
+  (when current-prefix-arg
+    (setq no-trailing-newline t))
+  (with-current-buffer buf
+    (util/delete-blank-lines-in-region (point-min) (point-max) no-trailing-newline)))
+
+;; FIXME: Cask gives an error
+(defun util/delete-blank-lines-in-region (&optional beg end no-trailing-newline)
+  "Delete all empty lines in region.
+Region is either the active region or optional points BEG and
+END."
+  (interactive)
+  (when current-prefix-arg
+    (setq no-trailing-newline t))
+  (save-restriction
+    (when (and (called-interactively-p 'any) (region-active-p))
+      (setq beg (region-beginning)
+            end (region-end)))
+    (when (and beg end (< beg end))
+      (narrow-to-region beg end)
+      (delete-trailing-whitespace)
+      (goto-char (point-min))
+      (while (re-search-forward "^[ ]+\n" nil t)
+        (replace-match ""))
+      (goto-char (point-min))
+      (when (looking-at "\n")
+        (delete-char 1))
+      (while (re-search-forward "\r?\n+\n" nil t)
+        (replace-match "\n"))
+      (goto-char (point-max))
+      (when (and no-trailing-newline (looking-back "\n" 1))
+        (re-search-backward "\r?\n+\n" nil t)
+        (replace-match "")))))
 
 ;; NOTE: This should be webmacs but is CHROMIUM, actually sending a url to webmacs
 ;;       is pretty painless
@@ -437,7 +728,7 @@ Only the REGEXP pattern is asked on the prompt."
 ;; 	   (append browse-url-chromium-arguments (list url)))))
 
 (defun util/get-buffers-matching-mode (mode)
-  "Returns a list of buffers where their major-mode is equal to MODE."
+  "Return a list of buffers where their `major-mode' is equal to MODE."
   (let (buffer-mode-matches)
     (dolist (buf (buffer-list))
       (with-current-buffer buf
@@ -521,7 +812,7 @@ Only the REGEXP pattern is asked on the prompt."
     my/max))
 
 (defun util/trim (str)
-  "Trims the string and replaces multiple spaces with a single one."
+  "Trims the string STR and replace multiple spaces with a single one."
   (util/replace-in-string (string-trim str) "[ ]+" " "))
 
 (defun util/replace-in-string (in what with)
@@ -570,7 +861,8 @@ Prefixed with a \\[universal-argument], sorts in reverse.  See
 (defvar ido-enable-flex-matching)
 (defun util/ido-goto-symbol (&optional symbol-list)
   "Refresh imenu and jump to a place in the buffer using Ido.
-Optional argument SYMBOL-LIST is used for recursion when the function calls itself a second time."
+Optional argument SYMBOL-LIST is used for recursion when the
+function calls itself a second time."
   (interactive)
   (unless (featurep 'imenu)
     (require 'imenu nil t))
@@ -709,6 +1001,7 @@ Sum over N iterations."
 
 (defun util/fast-files-or-dirs (path f-or-d &optional recurse include-hidden)
   "Get all files or dirs or both or everything, recursively from PATH.
+Only works where a POSIX \"find\" is available.
 
 F-OR-D can be one of 'f 'files 'd 'dirs or 'both.  If anything
 else, is given, everything is returned, including symlinks etc.
@@ -717,16 +1010,18 @@ Optionally if RECURSE is non-nil recurse into the directories.
 INCLUDE-HIDDEN includes hidden files and files in hidden
 directories if non-nil.  Uses \"find\" shell command. Much faster
 than using `directory-files-recursively'"
-  (-remove #'string-empty-p (split-string
-                             (shell-command-to-string
-                              (format "find %s %s %s %s -print0" path
-                                      (if include-hidden "" "-not -path '*/\\.*'")
-                                      (pcase f-or-d
-                                        ((or 'files 'f) "-type f")
-                                        ((or 'dirs 'd) "-type d")
-                                        ('both "\\( -type f -o -type d \\)")
-                                        (_ ""))
-                                      (if recurse "" "-maxdepth 1"))) "\0")))
+  (if (executable-find "find")
+      (-remove #'string-empty-p (split-string
+                               (shell-command-to-string
+                                (format "find %s %s %s %s -print0" path
+                                        (if include-hidden "" "-not -path '*/\\.*'")
+                                        (pcase f-or-d
+                                          ((or 'files 'f) "-type f")
+                                          ((or 'dirs 'd) "-type d")
+                                          ('both "\\( -type f -o -type d \\)")
+                                          (_ ""))
+                                        (if recurse "" "-maxdepth 1"))) "\0"))
+    (message "\"find\" command not found.") nil))
 
 
 (defvar util/no-capitalize
@@ -817,6 +1112,57 @@ word."
         (when (get symbol 'disabled)
           (prin1 symbol)
           (princ "\n")))))))
+
+(defun util/functions-matching-re (re &rest preds)
+  "Return list of functions matching regexp RE.
+Optional PREDS is a list of additional predicates to match for
+atoms. See `util/commands-matching-re' and
+`util/builtins-matching-re' for example of PREDS."
+  (let (atoms)
+    (mapatoms (lambda (x)
+                (when (and (fboundp x)
+                           (or (not preds)
+                               (funcall (-andfn preds) x))
+                           (string-match-p re (symbol-name x)))
+                  (push x atoms))))
+    atoms))
+
+(defun util/commands-matching-re (re)
+  "Return list of commands matching regexp RE."
+  (util/functions-matching-re re (lambda (x) (commandp (symbol-function x)))))
+
+;; FIXME: This is totally broken
+;; (defun util/builtins-matching-re (re)
+;;   "Return list of builtins matching regexp RE."
+;;   (util/functions-matching-re re (lambda (x) (subrp (symbol-function x)))))
+
+(defun util/org-remove-all-drawers (&optional buf)
+  "Remove all drawers from buffer BUF.
+If buf is not given or doesn't exist, defaults to
+`current-buffer'."
+  (let ((buf (or (and buf (get-buffer buf)) (current-buffer))))
+    (when (eq major-mode 'org-mode)
+      (with-current-buffer buf
+        (goto-char (point-min))
+        (org-with-wide-buffer
+         (while (re-search-forward org-drawer-regexp nil t)
+           (util/org-remove-drawer-at)))))))
+
+(defun util/org-remove-drawer-at (&optional pos)
+  "Remove a drawer at position POS.
+POS may also be a marker."
+  (with-current-buffer (if (markerp pos) (marker-buffer pos) (current-buffer))
+    (unless pos
+      (setq pos (point)))
+    (org-with-wide-buffer
+     (goto-char pos)
+     (let ((drawer (org-element-at-point)))
+       (when (memq (org-element-type drawer) '(drawer property-drawer))
+	 (delete-region (org-element-property :begin drawer)
+			(progn (goto-char (org-element-property :end drawer))
+			       (skip-chars-backward " \r\t\n")
+			       (forward-line)
+			       (point))))))))
 
 (provide 'util)
 
