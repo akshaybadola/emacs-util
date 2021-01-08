@@ -886,8 +886,12 @@ function calls itself a second time."
       (setq position (cdr (assoc util//selected-symbol util//name-and-pos)))
       (cond
        ((overlayp position)
-        (goto-char (overlay-start position)))
-       (t (goto-char position)))))
+        (goto-char (overlay-start position))
+        (when (eq major-mode 'org-mode)
+          (org-reveal)))
+       (t (goto-char position)
+          (when (eq major-mode 'org-mode)
+          (org-reveal))))))
    ((listp symbol-list)
     (dolist (symbol symbol-list)
       (let (name position)
@@ -1163,6 +1167,68 @@ POS may also be a marker."
 			       (skip-chars-backward " \r\t\n")
 			       (forward-line)
 			       (point))))))))
+
+(defun util/org-remove-list-items-matching-re-from-buffer (re)
+  "Remove list items from an `org-mode' buffer which match regexp RE.
+The buffer to operate on must be an org buffer.  Optional RECURSE
+is not used."
+  (when (eq major-mode 'org-mode)
+    (goto-char (point-min))
+    (let (regions)
+      (org-element-map (org-element-parse-buffer) 'plain-list
+        (lambda (el)
+          (let ((beg (plist-get (cadr el) :contents-begin))
+                (end (plist-get (cadr el) :contents-end))
+                lbeg lend)
+            (when
+                (string-match-p re (buffer-substring-no-properties beg end))
+              (mapcar (lambda (x)
+                        (setq lbeg (plist-get (cadr x) :begin))
+                        (setq lend (plist-get (cadr x) :end))
+                        (when (and (eq (car x) 'item)
+                                   (string-match-p re (buffer-substring-no-properties lbeg lend)))
+                          (push (cons lbeg lend) regions)))
+                      (cdr el))))))
+      (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
+
+(defun util/org-kill-new-or-append-subtree ()
+  "Kill or append to last kill current subtree.
+`kill-new' a subtree if previous kill was not an org heading,
+append to last kill otherwise.  With non-nil `current-prefix-arg'
+remove the subtree from the buffer also."
+  (interactive)
+  (save-restriction
+    (org-narrow-to-subtree)
+    (let ((str (buffer-string))
+          (beg (point-min))
+          (end (point-max))
+          new)
+      (if (string-prefix-p "*" (-first-item (split-string (car kill-ring) "\n")))
+          (kill-append (concat "\n" str) nil)
+        (kill-new str)
+        (setq new t))
+      (when current-prefix-arg
+        (delete-region beg end))
+      (message (if new "Killed %s " "Appended %s to last kill")
+               (-first-item (split-string str "\n")))))
+  (delete-blank-lines))
+
+
+(defun util/org-remove-subtrees-matching-re (re &optional recurse)
+  "Remove subtrees from an `org-mode' buffer whose headlines match regexp RE.
+The buffer to operate on must be an org buffer.  Optional RECURSE
+is not used."
+  (when (eq major-mode 'org-mode)
+    (goto-char (point-min))
+    (let (regions)
+      (org-element-map (org-element-parse-buffer) 'headline
+        (lambda (el)
+          (let ((hbeg (plist-get (cadr el) :contents-begin))
+                (hend (plist-get (cadr el) :contents-end)))
+            (when (string-match-p re (plist-get (cadr el) :raw-value))
+              (when (and hbeg hend)
+                (push (cons hbeg hend) regions))))))
+      (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
 (provide 'util)
 
