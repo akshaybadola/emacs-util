@@ -8,7 +8,7 @@
 ;; Time-stamp:	"Monday 31 August 2020 17:03:42 IST"
 ;; Keywords:	utility
 ;; Version:     0.1
-;; Package-Requires: ((org "9.1.9") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1"))
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -35,6 +35,8 @@
 
 ;;; Code:
 
+(require 'a)
+(require 'helm)
 (require 'cl-lib)
 (require 'dash)
 (require 'dash-functional)
@@ -50,6 +52,7 @@
 (require 'tern)
 (require 'time-stamp)
 
+(declare-function org-hide-drawer-toggle "org")
 
 (defsubst cdass (elem alist)
   "Short for (cdr (assoc ELEM) list).
@@ -62,6 +65,23 @@ Argument ALIST association list."
       (seq-do (lambda (x) (insert (format "%s\n" x)))
               args)
     (insert (format "%s\n" args))))
+
+(defun util/pairs-to-alist (pairs)
+  "Merge cons PAIRS into an alist with first elements as keys.
+
+The head of the list is the associative element.
+
+Example:
+    (pairs-to-alist '((a b) (b c d) (a d) (e f)))
+     => '((a b d) (b c d) (e f))"
+  (when (and (consp pairs) (a-assoc pairs))
+    (let (newlist)
+      (seq-do (lambda (x)
+                (if (a-has-key newlist (car x))
+                    (setq newlist (a-update newlist (car x) (lambda (y) (push (cdr x) y))))
+                  (push (list (car x) (cdr x)) newlist)))
+              pairs)
+      newlist)))
 
 (defun util/hidden-buffers (regexp &optional pred n)
   "Get all hidden buffers matching REGEXP.
@@ -633,6 +653,7 @@ Only the REGEXP pattern is asked on the prompt."
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
          (dir (file-name-directory fname))
+         (case-fold-search t)
          (files (concat "*." (car (last (split-string fname "\\."))))))
     (eval-after-load "grep"
       '(grep-compute-defaults))
@@ -733,7 +754,7 @@ END."
     (dolist (buf (buffer-list))
       (with-current-buffer buf
         (if (eq mode major-mode)
-            (push buf 'buffer-mode-matches))))
+            (push buf buffer-mode-matches))))
     buffer-mode-matches))
 
 (defun util/get-or-create-window-on-side ()
@@ -1175,20 +1196,17 @@ is not used."
   (when (eq major-mode 'org-mode)
     (goto-char (point-min))
     (let (regions)
-      (org-element-map (org-element-parse-buffer) 'plain-list
+      (org-element-map (org-element-parse-buffer) 'item
         (lambda (el)
           (let ((beg (plist-get (cadr el) :contents-begin))
                 (end (plist-get (cadr el) :contents-end))
-                lbeg lend)
-            (when
-                (string-match-p re (buffer-substring-no-properties beg end))
-              (mapcar (lambda (x)
-                        (setq lbeg (plist-get (cadr x) :begin))
-                        (setq lend (plist-get (cadr x) :end))
-                        (when (and (eq (car x) 'item)
-                                   (string-match-p re (buffer-substring-no-properties lbeg lend)))
-                          (push (cons lbeg lend) regions)))
-                      (cdr el))))))
+                match-pt)
+            (setq match-pt (string-match-p re (buffer-substring-no-properties beg end)))
+            (when (and match-pt (= match-pt 0))
+              (goto-char beg)
+              (let ((bol (point-at-bol)))
+                (when (-none-p (lambda (x) (and (< (car x) bol) (>= (cdr x) end))) regions)
+                  (push (cons bol end) regions)))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
 (defun util/org-kill-new-or-append-subtree ()
@@ -1213,11 +1231,10 @@ remove the subtree from the buffer also."
                (-first-item (split-string str "\n")))))
   (delete-blank-lines))
 
-
 (defun util/org-remove-subtrees-matching-re (re &optional recurse)
   "Remove subtrees from an `org-mode' buffer whose headlines match regexp RE.
 The buffer to operate on must be an org buffer.  Optional RECURSE
-is not used."
+is not used as of now."
   (when (eq major-mode 'org-mode)
     (goto-char (point-min))
     (let (regions)
@@ -1229,6 +1246,48 @@ is not used."
               (when (and hbeg hend)
                 (push (cons hbeg hend) regions))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
+
+(defun util/collect-duplicate-headings (&optional predicate)
+  "Collect duplicate headings in an org buffer.
+With optional boolean function PREDICATE, collect those which
+only satisfy it."
+  (let (hls dups)
+    (save-excursion
+      (goto-char (point-max))
+      (while (re-search-backward org-complex-heading-regexp nil t)
+        (let* ((el (org-element-at-point))
+               (hl (org-element-property :title el))
+               (pos (org-element-property :begin el)))
+          (if predicate
+              (when (funcall predicate hl)
+                (push (cons hl pos) hls))
+            (push (cons hl pos) hls))))
+      (dolist (hl hls)
+        (when (> (cl-count (car hl) (mapcar #'car hls)
+                           :test 'equal)
+                 1)
+          (push hl dups)))
+      (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))))
+
+(defun util/org-helm-show-duplicate-headings (&optional pred)
+  "Show duplicate headings in an org buffer with `helm'.
+With optional predicate PRED, show only those which satisfy the
+predicate."
+  (interactive)
+  (helm :sources (helm-build-sync-source "Duplicate headings"
+                   :candidates (lambda ()
+                                 (with-helm-current-buffer
+                                   (util/collect-duplicate-headings pred)))
+                   :follow 1
+                   :action (lambda (char)
+                             (goto-char char)
+                             (org-show-entry)
+                             (save-excursion
+                               (let ((bounds (org-get-property-block)))
+                                 (when bounds
+                                   ; HACK (car bounds) gives node-property which org complains is not a drawer
+                                   (goto-char (- (car bounds) 1))
+                                   (org-hide-drawer-toggle))))))))
 
 (provide 'util)
 

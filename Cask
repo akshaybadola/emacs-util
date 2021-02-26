@@ -9,7 +9,9 @@
  (depends-on "ert-runner")
  (depends-on "el-mock"))
 
-(depends-on "org" "9.1.9")
+(depends-on "helm")
+(depends-on "a" "0.1.1")
+(depends-on "org" "9.4")
 (depends-on "dash" "2.17.0")
 (depends-on "dash-functional" "1.2.0")
 (depends-on "bind-key" "2.4")
