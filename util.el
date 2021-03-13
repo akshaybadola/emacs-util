@@ -1,11 +1,10 @@
 ;;; util.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020
+;; Copyright (C) 2020,2021
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	"Monday 31 August 2020 17:03:42 IST"
 ;; Keywords:	utility
 ;; Version:     0.1
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1"))
@@ -51,6 +50,49 @@
 (require 'sphinx-doc)
 (require 'tern)
 (require 'time-stamp)
+
+(defvar parse-time-weekdays)
+
+(defvar util/org-min-collect-heading-length 1)
+
+(defvar util/org-simple-regexp-search-modes
+  '(emacs-lisp-mode lisp-mode python-mode javascript-mode
+                    rjsx-mode fundamental-mode text-mode)
+  "Modes for which org should do a simple regexp search.
+Used by `util/org-execute-simple-regexp-search'.")
+
+;; All these for `util/ido-goto-symbol'
+(defvar util//selected-symbol nil)
+(defvar util//name-and-pos nil)
+(defvar util//symbol-names nil)
+(defvar ido-enable-flex-matching)
+
+(defvar util/no-capitalize-small
+  '("a" "an" "and" "are" "as" "at" "by" "can" "did" "do" "does" "for" "from" "had" "has" "have" "having" "here" "how" "in" "into" "is" "it" "it's" "its" "not" "of" "on" "over" "should" "so" "than" "that" "the" "then" "there" "these" "to" "was" "were" "what" "when" "where" "which" "who" "why" "will" "with")
+  "List of words not to capitalize for `util/title-case'.")
+
+(defvar util/no-capitalize-big
+  '("me" "my" "myself" "we" "our" "ours"
+    "ourselves" "you" "you're" "you've" "you'll" "you'd" "your" "yours" "yourself"
+    "yourselves" "he" "him" "his" "himself" "she" "she's" "her" "hers" "herself"
+    "it" "it's" "its" "itself" "they" "them" "their" "theirs" "themselves" "what"
+    "which" "who" "whom" "this" "that" "that'll" "these" "those" "am" "is" "are"
+    "was" "were" "be" "been" "being" "have" "has" "had" "having" "do" "does" "did"
+    "doing" "a" "an" "the" "and" "but" "if" "or" "because" "as" "until" "while"
+    "of" "at" "by" "for" "with" "about" "against" "between" "into" "through"
+    "during" "before" "after" "above" "below" "to" "from" "up" "down" "in" "out"
+    "on" "off" "over" "under" "again" "further" "then" "once" "here" "there" "when"
+    "where" "why" "how" "all" "any" "both" "each" "few" "more" "most" "other"
+    "some" "such" "no" "nor" "not" "only" "own" "same" "so" "than" "too" "very" "s"
+    "t" "can" "will" "just" "don" "don't" "should" "should've" "now" "ain't" "aren"
+    "aren't" "couldn" "couldn't" "didn" "didn't" "doesn" "doesn't" "hadn" "hadn't"
+    "hasn" "hasn't" "haven" "haven't" "isn" "isn't" "ma" "mightn" "mightn't"
+    "mustn" "mustn't" "needn" "needn't" "shan" "shan't" "shouldn't" "wasn't"
+    "weren't" "won't" "wouldn't")
+  "A bigger list of words not to capitalize for `util/title-case'.")
+
+(defvar util/no-capitalize-list util/no-capitalize-small
+  "Default value of list of words not to capitalize for `util/title-case'.")
 
 (declare-function org-hide-drawer-toggle "org")
 
@@ -243,7 +285,6 @@ Like `util/org-goto-latest-timestamp' but for all buffers."
 Like `util/org-occur-sorted-timestamps' but for all buffers."
   )
 
-(defvar parse-time-weekdays)
 (defun util/decode-time-stamp (ts)
   "Similar to `decode-time' but for time stamp TS."
   (pcase-let* ((`(,date ,day ,time) (split-string (substring ts 1 -1) " "))
@@ -387,11 +428,6 @@ is input from user.  It defaults to PDF_FILE if not given."
             (message (format "Copied %s subtrees" count)))))
     (message "Not in org-mode")))
 
-(defvar util/org-simple-regexp-search-modes
-  '(emacs-lisp-mode lisp-mode python-mode javascript-mode
-                    rjsx-mode fundamental-mode text-mode)
-  "Modes for which org should do a simple regexp search.
-Used by `util/org-execute-simple-regexp-search'.")
 (defun util/org-execute-simple-regexp-search (str)
   "Find the link for a search string STR with a simple `re-search-forward'.
 When no function in `org-execute-file-search-functions' matches
@@ -882,10 +918,6 @@ Prefixed with a \\[universal-argument], sorts in reverse.  See
 ;; class def doesn't appear in this, nor do nested defs
 ;; inner most def appears
 ;; two levels of nesting also appear, but top level doesn't
-(defvar util//selected-symbol nil)
-(defvar util//name-and-pos nil)
-(defvar util//symbol-names nil)
-(defvar ido-enable-flex-matching)
 (defun util/ido-goto-symbol (&optional symbol-list)
   "Refresh imenu and jump to a place in the buffer using Ido.
 Optional argument SYMBOL-LIST is used for recursion when the
@@ -974,7 +1006,7 @@ function calls itself a second time."
 ;; This is an interactive function and the docstring generated is as
 ;; per the requirement of Sphinx documentation generator."
 ;;   (interactive)
-  
+
 ;;   ;; Cases: 1. ordinary func
 ;;   ;;        2. between class and __init__
 ;;   ;;        3. in class method
@@ -990,7 +1022,7 @@ function calls itself a second time."
 ;;       ;;     (string= (thing-at-point 'word) "def"))
 ;;       (back-to-indentation)
 ;;     (search-backward-regexp sphinx-doc-fun-beg-regex))
-  
+
 ;;   (let ((fd (sphinx-doc-str->fndef (sphinx-doc-fndef-str))))
 ;;     (if fd
 ;;         (let ((indent (+ (sphinx-doc-current-indent) sphinx-doc-python-indent))
@@ -1054,32 +1086,13 @@ than using `directory-files-recursively'"
                                         (if recurse "" "-maxdepth 1"))) "\0"))
     (message "\"find\" command not found.") nil))
 
-
-(defvar util/no-capitalize
-  '("a" "an" "and" "are" "as" "at" "by" "can" "did" "do" "does" "for" "from" "had" "has" "have" "having" "here" "how" "in" "into" "is" "it" "it's" "its" "not" "of" "on" "over" "should" "so" "than" "that" "the" "then" "there" "these" "to" "was" "were" "what" "when" "where" "which" "who" "why" "will" "with"))
-(defvar util/no-capitalize-bigger
-  '("me" "my" "myself" "we" "our" "ours"
-    "ourselves" "you" "you're" "you've" "you'll" "you'd" "your" "yours" "yourself"
-    "yourselves" "he" "him" "his" "himself" "she" "she's" "her" "hers" "herself"
-    "it" "it's" "its" "itself" "they" "them" "their" "theirs" "themselves" "what"
-    "which" "who" "whom" "this" "that" "that'll" "these" "those" "am" "is" "are"
-    "was" "were" "be" "been" "being" "have" "has" "had" "having" "do" "does" "did"
-    "doing" "a" "an" "the" "and" "but" "if" "or" "because" "as" "until" "while"
-    "of" "at" "by" "for" "with" "about" "against" "between" "into" "through"
-    "during" "before" "after" "above" "below" "to" "from" "up" "down" "in" "out"
-    "on" "off" "over" "under" "again" "further" "then" "once" "here" "there" "when"
-    "where" "why" "how" "all" "any" "both" "each" "few" "more" "most" "other"
-    "some" "such" "no" "nor" "not" "only" "own" "same" "so" "than" "too" "very" "s"
-    "t" "can" "will" "just" "don" "don't" "should" "should've" "now" "ain't" "aren"
-    "aren't" "couldn" "couldn't" "didn" "didn't" "doesn" "doesn't" "hadn" "hadn't"
-    "hasn" "hasn't" "haven" "haven't" "isn" "isn't" "ma" "mightn" "mightn't"
-    "mustn" "mustn't" "needn" "needn't" "shan" "shan't" "shouldn't" "wasn't"
-    "weren't" "won't" "wouldn't"))
 (defun util/title-case (&optional str)
   "Convert STR to title case.
 If called interactively, then transform the active region to
-title case.  Words to ignore are determined by a NO-CAPITALIZE
-list.  See `util/no-capitalize' and `util/no-capitalize-bigger'."
+title case.  Words to ignore are determined by a no-capitalize
+list.  Default is `util/no-capitalize-list'.
+
+See also, `util/no-capitalize-small' and `util/no-capitalize-big'."
   (interactive)
   (when (called-interactively-p 'any)
     (if (region-active-p)
@@ -1093,7 +1106,7 @@ list.  See `util/no-capitalize' and `util/no-capitalize-bigger'."
         (result (progn
                   (cl-loop for x in split
                            do
-                           (if (and (member x util/no-capitalize)
+                           (if (and (member x util/no-capitalize-list)
                                     (not capitalize-next)
                                     (not (= count 0))) ; first word
                                (push x result)
@@ -1274,7 +1287,9 @@ used as of now."
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
 (defun util/org-collect-headings (predicate)
-  "Return headings in an org buffer satisfying PREDICATE."
+  "Return headings in an org buffer satisfying unary PREDICATE.
+See `util/org-default-heading-filter-p' for an example of such a
+predicate."
   (let (headings)
     (save-excursion
       (goto-char (point-max))
@@ -1286,22 +1301,23 @@ used as of now."
             (push (cons heading pos) headings))))
       headings)))
 
-(defvar util/org-min-collect-heading-length 1)
 (defun util/org-default-heading-filter-p (heading)
-  "Default predicate for heading collection"
+  "Default predicate for `util/org-collect-headings'.
+Compares length of HEADING with
+`util/org-min-collect-heading-length'."
   (> (length (split-string heading))
      util/org-min-collect-heading-length))
 
 (defun util/org-insert-link-to-heading ()
   "Insert a link to selected heading.
-Description of the link is first two words of the heading. The
+Description of the link is first two words of the heading.  The
 headings are filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched.
 
 For customizing how headings are gathered, change the value of
 `util/org-default-heading-filter-p'.
 
-See also: `util/org-collect-headings'."
+See also, `util/org-collect-headings'."
   (interactive)
   (let* ((headings (util/org-collect-headings #'util/org-default-heading-filter-p))
          (selected (ido-completing-read "Insert link to: " (mapcar #'car headings))))
