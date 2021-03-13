@@ -60,7 +60,7 @@ Argument ALIST association list."
     (cdr (assoc elem alist)))
 
 (defun util/insert (&rest args)
-  "Insert args as strings."
+  "Insert ARGS as strings."
   (if (listp args)
       (seq-do (lambda (x) (insert (format "%s\n" x)))
               args)
@@ -362,7 +362,7 @@ satisfy PRED, they will also be copied as part of the subtree."
 (defun util/org-copy-subtree-elems-with-property (&optional prop)
   "Copy all children subtrees of current heading which have a property PROP.
 When called interactively and with a \\[universal-argument] PROP
-is input from user. It defaults to PDF_FILE if not given."
+is input from user.  It defaults to PDF_FILE if not given."
   (interactive)
   (if (eq major-mode 'org-mode)
       (let ((prop (or prop (and current-prefix-arg
@@ -393,7 +393,7 @@ is input from user. It defaults to PDF_FILE if not given."
   "Modes for which org should do a simple regexp search.
 Used by `util/org-execute-simple-regexp-search'.")
 (defun util/org-execute-simple-regexp-search (str)
-  "Find the link search string S with a simple `re-search-forward'.
+  "Find the link for a search string STR with a simple `re-search-forward'.
 When no function in `org-execute-file-search-functions' matches
 `org-link-search' doeesn't always search correctly in non
 `org-mode' files.  In a lot of cases a simple regexp search
@@ -420,7 +420,7 @@ suffices.  This function does just that.  Adapated from
 ;; TODO: In case there are multiple matches, list all
 ;; FIXME: Not sure if this is correct
 (defun util/org-execute-org-heading-max-match-search (str)
-  "Return maximum length match for minimum three words of STR of org heading"
+  "Return maximum length match for minimum three words of STR of org heading."
   (when (derived-mode-p 'org-mode)
     (let* ((buf (current-buffer))
            (words (split-string (string-remove-prefix "*" str) " "))
@@ -694,7 +694,9 @@ Only the REGEXP pattern is asked on the prompt."
 
 (defun util/delete-blank-lines-in-buffer (&optional buf no-trailing-newline)
   "Delete all empty lines in the entire buffer BUF.
-When optional BUF is not given, defaults to current buffer."
+When optional BUF is not given, defaults to current buffer.  With
+non-nil optional NO-TRAILING-NEWLINE remove all the empty
+newlines from the end also."
   (interactive)
   (unless buf
     (setq buf (current-buffer)))
@@ -707,7 +709,8 @@ When optional BUF is not given, defaults to current buffer."
 (defun util/delete-blank-lines-in-region (&optional beg end no-trailing-newline)
   "Delete all empty lines in region.
 Region is either the active region or optional points BEG and
-END."
+END.  With non-nil NO-TRAILING-NEWLINE remove all the empty
+newlines from the end also."
   (interactive)
   (when current-prefix-arg
     (setq no-trailing-newline t))
@@ -768,6 +771,9 @@ END."
     win))
 
 (defun util/tern-find-definition-other-window (&optional prompt-var)
+"Goto definition of symbol at point in other window.
+If optional PROMPT-VAR is given or tern can't figure out the
+symbol, prompt the user for the symbol."
   (interactive)
   (let ((varname (and (or prompt-var (not (tern-at-interesting-expression)))
                       (read-from-minibuffer "Variable: "))))
@@ -1141,7 +1147,7 @@ word."
 (defun util/functions-matching-re (re &rest preds)
   "Return list of functions matching regexp RE.
 Optional PREDS is a list of additional predicates to match for
-atoms. See `util/commands-matching-re' and
+atoms.  See `util/commands-matching-re' and
 `util/builtins-matching-re' for example of PREDS."
   (let (atoms)
     (mapatoms (lambda (x)
@@ -1209,6 +1215,25 @@ is not used."
                   (push (cons bol end) regions)))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
+;; FIXME: This leaves the subtree in "show" mode. Should save subtree state
+(defun util/org-narrow-to-heading-and-body ()
+  "Narrow to the current heading and the body.
+Unlike `org-narrow-to-subtree' any headings which are children of
+the current heading are excluded."
+  (let (pmin pmax)
+    (org-narrow-to-subtree)
+    (save-excursion
+      (goto-char (point-min))
+      (org-show-subtree)
+      (beginning-of-line)
+      (if (eq (point-min) (point))
+          (setq pmin (point))
+        (org-previous-visible-heading 1)
+        (setq pmin (point)))
+      (org-next-visible-heading 1)
+      (setq pmax (point))
+      (narrow-to-region pmin pmax))))
+
 (defun util/org-kill-new-or-append-subtree ()
   "Kill or append to last kill current subtree.
 `kill-new' a subtree if previous kill was not an org heading,
@@ -1233,8 +1258,9 @@ remove the subtree from the buffer also."
 
 (defun util/org-remove-subtrees-matching-re (re &optional recurse)
   "Remove subtrees from an `org-mode' buffer whose headlines match regexp RE.
-The buffer to operate on must be an org buffer.  Optional RECURSE
-is not used as of now."
+Remove only at one depth below the current subtree.  The buffer
+to operate on must be an org buffer.  Optional RECURSE is not
+used as of now."
   (when (eq major-mode 'org-mode)
     (goto-char (point-min))
     (let (regions)
@@ -1247,26 +1273,61 @@ is not used as of now."
                 (push (cons hbeg hend) regions))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
-(defun util/collect-duplicate-headings (&optional predicate)
-  "Collect duplicate headings in an org buffer.
-With optional boolean function PREDICATE, collect those which
-only satisfy it."
-  (let (hls dups)
+(defun util/org-collect-headings (predicate)
+  "Return headings in an org buffer satisfying PREDICATE."
+  (let (headings)
     (save-excursion
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
         (let* ((el (org-element-at-point))
-               (hl (org-element-property :title el))
+               (heading (org-element-property :title el))
+               (pos (org-element-property :begin el)))
+          (when (funcall predicate heading)
+            (push (cons heading pos) headings))))
+      headings)))
+
+(defvar util/org-min-collect-heading-length 1)
+(defun util/org-default-heading-filter-p (heading)
+  "Default predicate for heading collection"
+  (> (length (split-string heading))
+     util/org-min-collect-heading-length))
+
+(defun util/org-insert-link-to-heading ()
+  "Insert a link to selected heading.
+Description of the link is first two words of the heading. The
+headings are filtered by length and only headings greater than
+`util/org-min-collect-heading-length' are searched.
+
+For customizing how headings are gathered, change the value of
+`util/org-default-heading-filter-p'.
+
+See also: `util/org-collect-headings'."
+  (interactive)
+  (let* ((headings (util/org-collect-headings #'util/org-default-heading-filter-p))
+         (selected (ido-completing-read "Insert link to: " (mapcar #'car headings))))
+    (insert (format "[[*%s][%s]]" selected
+                    (string-join (-take 2 (split-string selected)) " ")))))
+
+(defun util/org-collect-duplicate-headings (&optional predicate)
+  "Collect duplicate headings in an org buffer.
+With optional boolean function PREDICATE, collect those which
+only satisfy it."
+  (let (headings dups)
+    (save-excursion
+      (goto-char (point-max))
+      (while (re-search-backward org-complex-heading-regexp nil t)
+        (let* ((el (org-element-at-point))
+               (heading (org-element-property :title el))
                (pos (org-element-property :begin el)))
           (if predicate
-              (when (funcall predicate hl)
-                (push (cons hl pos) hls))
-            (push (cons hl pos) hls))))
-      (dolist (hl hls)
-        (when (> (cl-count (car hl) (mapcar #'car hls)
+              (when (funcall predicate heading)
+                (push (cons heading pos) headings))
+            (push (cons heading pos) headings))))
+      (dolist (heading headings)
+        (when (> (cl-count (car heading) (mapcar #'car headings)
                            :test 'equal)
                  1)
-          (push hl dups)))
+          (push heading dups)))
       (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))))
 
 (defun util/org-helm-show-duplicate-headings (&optional pred)
@@ -1277,7 +1338,7 @@ predicate."
   (helm :sources (helm-build-sync-source "Duplicate headings"
                    :candidates (lambda ()
                                  (with-helm-current-buffer
-                                   (util/collect-duplicate-headings pred)))
+                                   (util/org-collect-duplicate-headings pred)))
                    :follow 1
                    :action (lambda (char)
                              (goto-char char)
