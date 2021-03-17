@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Keywords:	utility
 ;; Version:     0.1
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1"))
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -50,6 +50,7 @@
 (require 'sphinx-doc)
 (require 'tern)
 (require 'time-stamp)
+(require 'xr)
 
 (defvar parse-time-weekdays)
 
@@ -93,6 +94,9 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defvar util/no-capitalize-list util/no-capitalize-small
   "Default value of list of words not to capitalize for `util/title-case'.")
+
+(defvar util/stop-words util/no-capitalize-big
+  "Default value of list of stop words.")
 
 (declare-function org-hide-drawer-toggle "org")
 
@@ -454,17 +458,24 @@ suffices.  This function does just that.  Adapated from
     t))
 
 ;; TODO: In case there are multiple matches, list all
-;; FIXME: Not sure if this is correct
 (defun util/org-execute-org-heading-max-match-search (str)
-  "Return maximum length match for minimum three words of STR of org heading."
+  "Return maximum length match for minimum three words of STR of org heading.
+If heading contains less than 3 words, then an exact match is
+searched."
   (when (derived-mode-p 'org-mode)
     (let* ((buf (current-buffer))
            (words (split-string (string-remove-prefix "*" str) " "))
            (title-re
-	    (format "%s.*\\(?:%s[ \t]\\)?.*%s.+"
-		    org-outline-regexp-bol
-		    org-comment-string
-		    (mapconcat #'regexp-quote (-take 3 words) ".+")))
+	    (format (rx bol (+ "*") " "
+                        (opt (eval `(group
+                                     ,(nconc (if (eq major-mode 'org-mode)
+                                                 (cadr (xr org-todo-regexp))
+                                               '(or)) '("COMMENT")))) " ")
+                        (group "%s")
+                        eol)
+		    (if (< (length words) 3)
+                        (string-join words " ")
+                      (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".+"))))
 	   (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
 	   (comment-re (format "\\`%s[ \t]+" org-comment-string))
            matches)
@@ -484,7 +495,6 @@ suffices.  This function does just that.  Adapated from
           (goto-char (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches)))
           (beginning-of-line)
           ;; (recenter 0)
-
           ;; CHECK: Why was I doing this `mapcar'?
           ;; (mapcar #'cadr matches)
           ))
@@ -1220,7 +1230,7 @@ is not used."
           (let ((beg (plist-get (cadr el) :contents-begin))
                 (end (plist-get (cadr el) :contents-end))
                 match-pt)
-            (setq match-pt (string-match-p re (buffer-substring-no-properties beg end)))
+            (setq match-pt (and beg end (string-match-p re (buffer-substring-no-properties beg end))))
             (when (and match-pt (= match-pt 0))
               (goto-char beg)
               (let ((bol (point-at-bol)))
@@ -1308,6 +1318,16 @@ Compares length of HEADING with
   (> (length (split-string heading))
      util/org-min-collect-heading-length))
 
+(defun util/non-stop-words-prefix (string n)
+  "Return a prefix string of N words from STRING which are not stop words.
+Stop words list is `util/stop-words'."
+  (let (words)
+    (-take-while (lambda (x)
+                   (push (replace-regexp-in-string "\\(.+\\)[[:punct:]]$" "\\1" x) words)
+                   (< (length (-difference (mapcar #'downcase words) util/stop-words)) n))
+                 (split-string string))
+    (string-join (reverse words) " ")))
+
 (defun util/org-insert-link-to-heading ()
   "Insert a link to selected heading.
 Description of the link is first two words of the heading.  The
@@ -1321,10 +1341,9 @@ See also, `util/org-collect-headings'."
   (interactive)
   (let* ((headings (util/org-collect-headings #'util/org-default-heading-filter-p))
          (selected (ido-completing-read "Insert link to: " (mapcar #'car headings))))
-    (insert (format "[[*%s][%s]]" selected
-                    (string-join (-take 2 (split-string selected)) " ")))))
+    (insert (format "[[*%s][%s]]" selected (util/non-stop-words-prefix selected 2)))))
 
-(defun util/org-collect-duplicate-headings (&optional predicate)
+(defun util/org-collect-duplicate-headings (&optional predicate ignore-case test)
   "Collect duplicate headings in an org buffer.
 With optional boolean function PREDICATE, collect those which
 only satisfy it."
@@ -1340,13 +1359,17 @@ only satisfy it."
                 (push (cons heading pos) headings))
             (push (cons heading pos) headings))))
       (dolist (heading headings)
-        (when (> (cl-count (car heading) (mapcar #'car headings)
-                           :test 'equal)
+        (when (> (cl-count
+                  ;; (car heading)
+                  ;; (mapcar #'car headings)
+                  (if ignore-case (downcase (car heading)) (car heading))
+                  (mapcar (lambda (x) (if ignore-case (downcase (car x)) (car x))) headings)
+                  :test 'equal)
                  1)
           (push heading dups)))
       (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))))
 
-(defun util/org-helm-show-duplicate-headings (&optional pred)
+(defun util/org-helm-show-duplicate-headings (&optional pred ignore-case)
   "Show duplicate headings in an org buffer with `helm'.
 With optional predicate PRED, show only those which satisfy the
 predicate."
@@ -1354,7 +1377,7 @@ predicate."
   (helm :sources (helm-build-sync-source "Duplicate headings"
                    :candidates (lambda ()
                                  (with-helm-current-buffer
-                                   (util/org-collect-duplicate-headings pred)))
+                                   (util/org-collect-duplicate-headings pred ignore-case)))
                    :follow 1
                    :action (lambda (char)
                              (goto-char char)
