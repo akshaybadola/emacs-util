@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Keywords:	utility
 ;; Version:     0.1
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (dash-functional "1.2.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -38,7 +38,6 @@
 (require 'helm)
 (require 'cl-lib)
 (require 'dash)
-(require 'dash-functional)
 (require 'dired)
 (require 'grep)
 (require 'gv)
@@ -107,10 +106,12 @@ Argument ALIST association list."
 
 (defun util/insert (&rest args)
   "Insert ARGS as strings."
-  (if (listp args)
-      (seq-do (lambda (x) (insert (format "%s\n" x)))
-              args)
-    (insert (format "%s\n" args))))
+  (let ((print-length nil)
+        (print-level nil))
+    (if (listp args)
+        (seq-do (lambda (x) (insert (format "%s\n" x)))
+                args)
+      (insert (format "%s\n" args)))))
 
 (defun util/pairs-to-alist (pairs)
   "Merge cons PAIRS into an alist with first elements as keys.
@@ -980,7 +981,7 @@ function calls itself a second time."
           (add-to-list 'util//name-and-pos (cons name position))))))))
 
 ;; CHECK: perhaps should narrow to region in another buffer
-(defun util/calc-sruthi ()
+(defun util/calc-with-braces ()
   "My utility function to calculate Sruthi's debt."
   (interactive)
   (save-excursion
@@ -1059,18 +1060,8 @@ Sum over N iterations."
   `(let ((time (current-time)))
      (dotimes (i ,n)
        ,@body)
-     (message "%.06f" (float-time (time-since time)))))
-
-;; NOTE: Old implementation didn't make sense. It should be &rest body
-;; (defmacro util/measure-time (body &optional n)
-;;   "Measure the time it takes to evaluate BODY.
-;; Optionally repeat N times."
-;;   `(let ((time (current-time))
-;;          (n ,(if n n 1)))
-;;      (dotimes (i n)
-;;        ,body)
-;;      (message "%.06f" (float-time (time-since time)))))
-
+     (message "Mean runtime %.06f seconds over %s runs"
+              (/ (float-time (time-since time)) ,n) ,n)))
 
 (defun util/fast-files-or-dirs (path f-or-d &optional recurse include-hidden)
   "Get all files or dirs or both or everything, recursively from PATH.
@@ -1296,20 +1287,81 @@ used as of now."
                 (push (cons hbeg hend) regions))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
+(defvar util/org-headings-cache nil
+  "Cache of headings in designated buffers.")
+(defvar util/org-heading-props-filter-p nil
+  "Additional property filter to apply to headings while collecting them.
+Used by `util/org-collect-headings'")
 (defun util/org-collect-headings (predicate)
   "Return headings in an org buffer satisfying unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
-predicate."
-  (let (headings)
+predicate.
+
+Additionally `util/org-heading-props-filter-p' can be configured
+to filter additional headings by `org-element' properties plist."
+  (let ((el-predicate (or util/org-heading-props-filter-p #'identity))
+        headings)
     (save-excursion
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
         (let* ((el (org-element-at-point))
                (heading (org-element-property :title el))
-               (pos (org-element-property :begin el)))
-          (when (funcall predicate heading)
-            (push (cons heading pos) headings))))
+               (author (or (org-element-property :AUTHOR el) ""))
+               (pos (org-element-property :begin el))
+               (buf (buffer-name)))
+          (when (and (funcall predicate heading) (funcall el-predicate el))
+            (push `(,heading ,author ,buf ,pos) headings))))
       headings)))
+
+(defvar util/org-multi-collect-headings-cache nil
+  "Alist of collected headings cache.")
+(defvar util/org-multi-collect-files nil
+  "List of files from which to collect headings.")
+(defvar util/org-multi-collect-modtimes nil
+  "Modification times of buffers from which to collect headings.")
+(defvar util/org-multi-collect-buffers nil
+  "List of buffers from which to collect headings.")
+
+(defun util/org-multi-collect-setup ()
+  "Setup the `util/org-multi-collect-headings' variables."
+  (interactive)
+  (setq util/org-multi-collect-buffers
+        (mapcar #'find-file-noselect util/org-multi-collect-files))
+  (setq util/org-multi-collect-modtimes
+        (mapcar
+         (lambda (buf) (cons (buffer-name buf)
+                             (file-attribute-modification-time
+                              (file-attributes (buffer-file-name buf)))))
+         util/org-multi-collect-buffers)))
+
+;; TODO: Add to cache as current buffer updates.
+(defun util/org-multi-collect-headings (predicate)
+  "Return headings in an org buffer satisfying unary PREDICATE.
+See `util/org-default-heading-filter-p' for an example of such a
+predicate."
+  ;; check mod times of buffers or files
+  ;; If updated, add to cache
+  ;; Search only in entry cache
+  (let* ((modtimes (mapcar
+                    (lambda (buf) (cons buf (file-attribute-modification-time
+                                             (file-attributes (buffer-file-name buf)))))
+                    util/org-multi-collect-buffers))
+         (bufnames (mapcar #'buffer-name util/org-multi-collect-buffers))
+         (headings (mapcar (lambda (bufname)
+                             (cons bufname
+                                   (progn
+                                     (unless (and (a-get util/org-multi-collect-headings-cache bufname)
+                                                  (not (time-less-p (a-get util/org-multi-collect-modtimes
+                                                                           bufname)
+                                                                    (a-get modtimes bufname))))
+                                       (setq util/org-multi-collect-headings-cache
+                                             (a-assoc util/org-multi-collect-headings-cache
+                                                      bufname
+                                                      (with-current-buffer bufname
+                                                        (util/org-collect-headings predicate)))))
+                                     (a-get util/org-multi-collect-headings-cache bufname))))
+                           bufnames)))
+    headings))
 
 (defun util/org-default-heading-filter-p (heading)
   "Default predicate for `util/org-collect-headings'.
@@ -1334,26 +1386,61 @@ Description of the link is first two words of the heading.  The
 headings are filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched.
 
-For customizing how headings are gathered, change the value of
+For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
 
-See also, `util/org-collect-headings'."
+See also, `util/org-collect-headings' and
+`util/org-multi-collect-headings'."
   (interactive)
-  (let* ((headings (util/org-collect-headings #'util/org-default-heading-filter-p))
-         (selected (ido-completing-read "Insert link to: " (mapcar #'car headings))))
-    (insert (format "[[*%s][%s]]" selected (util/non-stop-words-prefix selected 2)))))
+  (let* ((read-from (pcase current-prefix-arg
+                            ('(4) 'research-files)
+                            ('(16) 'subtree)
+                            (_ 'buffer)))
+               (headings (pcase read-from
+                           ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
+                           ('research-files (apply #'-concat
+                                                   (a-vals
+                                                    (util/org-multi-collect-headings
+                                                     #'util/org-default-heading-filter-p))))
+                           ('subtree (save-restriction
+                                       (org-narrow-to-subtree)
+                                       (util/org-collect-headings #'util/org-default-heading-filter-p)))))
+               (selections (mapcar (lambda (x)
+                                     (string-join (pcase read-from
+                                                    ((or 'buffer 'subtree) (-take 2 x))
+                                                    ('research-files (-take 3 x))) " "))
+                                   headings))
+               (prompt (pcase read-from
+                         ('buffer "Insert link (cur-buf): ")
+                         ('subtree "Insert link (subtree): ")
+                         ('research-files "Insert link (files): ")))
+               (selected (ido-completing-read prompt selections))
+               (indx (-elem-index selected selections))
+               (file (pcase read-from
+                      ('research-files (format
+                                        "file:%s::"
+                                        (buffer-file-name
+                                         (get-buffer (nth 2 (nth indx headings))))))
+                      (_ "")))
+               (heading (pcase read-from
+                          ('research-files (car (nth indx headings)))
+                          (_ (car (nth indx headings))))))
+    (insert (format "[[%s*%s][%s]]" file heading (util/non-stop-words-prefix heading 2)))))
 
 (defun util/org-collect-duplicate-headings (&optional predicate ignore-case test)
   "Collect duplicate headings in an org buffer.
 With optional boolean function PREDICATE, collect those which
-only satisfy it."
+only satisfy it.  With optional non-nil IGNORE-CASE, ignore case
+while searching.  Optional TEST is which test function to use for
+`cl-count'.  Defaults to `equal'."
   (let (headings dups)
     (save-excursion
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
         (let* ((el (org-element-at-point))
                (heading (org-element-property :title el))
-               (pos (org-element-property :begin el)))
+               (pos (org-element-property :begin el))
+               (test (or test 'equal)))
           (if predicate
               (when (funcall predicate heading)
                 (push (cons heading pos) headings))
@@ -1364,7 +1451,7 @@ only satisfy it."
                   ;; (mapcar #'car headings)
                   (if ignore-case (downcase (car heading)) (car heading))
                   (mapcar (lambda (x) (if ignore-case (downcase (car x)) (car x))) headings)
-                  :test 'equal)
+                  :test test)
                  1)
           (push heading dups)))
       (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))))
@@ -1372,7 +1459,8 @@ only satisfy it."
 (defun util/org-helm-show-duplicate-headings (&optional pred ignore-case)
   "Show duplicate headings in an org buffer with `helm'.
 With optional predicate PRED, show only those which satisfy the
-predicate."
+predicate.  With optional non-nil IGNORE-CASE, ignore case while
+searching."
   (interactive)
   (helm :sources (helm-build-sync-source "Duplicate headings"
                    :candidates (lambda ()
