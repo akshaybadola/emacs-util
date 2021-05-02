@@ -704,7 +704,9 @@ Only the REGEXP pattern is asked on the prompt."
          (files (concat "*." (car (last (split-string fname "\\."))))))
     (eval-after-load "grep"
       '(grep-compute-defaults))
-    (rgrep regexp files dir)))
+    (if current-prefix-arg
+        (grep (list regexp files))
+      (rgrep regexp files dir))))
 
 ;; FIXME: What does it do?
 (defun util/clean-generated-org-buf ()
@@ -1048,6 +1050,17 @@ function calls itself a second time."
 ;;             (sphinx-doc-indent-doc indent)
 ;;             (search-forward "\"\"\""))))))
 
+(defmacro util/with-check-mode (mode msg-prefix &rest body)
+  "Execute BODY only if `major-mode' equals MODE.
+Otherwise message not in MODE.  MSG-PREFIX can be used to indicate
+the package from which the macro is invoked.  If MSG-PREFIX is
+nil, then nothing is prefixed to the message."
+  `(if (eq major-mode ,mode)
+       (progn ,@body)
+     (message "%sNot in %s"
+              (if ,msg-prefix (concat ,msg-prefix " ") "")
+              ,mode)))
+
 (defmacro util/measure-time (&rest body)
   "Measure the time it takes to evaluate BODY."
   `(let ((time (current-time)))
@@ -1342,6 +1355,8 @@ predicate."
   ;; check mod times of buffers or files
   ;; If updated, add to cache
   ;; Search only in entry cache
+  (unless (-all? #'buffer-live-p util/org-multi-collect-buffers)
+    (util/org-multi-collect-setup))
   (let* ((modtimes (mapcar
                     (lambda (buf) (cons buf (file-attribute-modification-time
                                              (file-attributes (buffer-file-name buf)))))
@@ -1380,11 +1395,10 @@ Stop words list is `util/stop-words'."
                  (split-string string))
     (string-join (reverse words) " ")))
 
-(defun util/org-insert-link-to-heading ()
+(defun util/org-insert-link-to-heading (&optional clip-func)
   "Insert a link to selected heading.
-Description of the link is first two words of the heading.  The
-headings are filtered by length and only headings greater than
-`util/org-min-collect-heading-length' are searched.
+Description of the link is determined by optional CLIP-FUNC.
+If not given, it defaults to `identity'.
 
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
@@ -1393,39 +1407,71 @@ See also, `util/org-collect-headings' and
 `util/org-multi-collect-headings'."
   (interactive)
   (let* ((read-from (pcase current-prefix-arg
-                            ('(4) 'research-files)
-                            ('(16) 'subtree)
-                            (_ 'buffer)))
-               (headings (pcase read-from
-                           ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
-                           ('research-files (apply #'-concat
-                                                   (a-vals
-                                                    (util/org-multi-collect-headings
-                                                     #'util/org-default-heading-filter-p))))
-                           ('subtree (save-restriction
-                                       (org-narrow-to-subtree)
-                                       (util/org-collect-headings #'util/org-default-heading-filter-p)))))
-               (selections (mapcar (lambda (x)
-                                     (string-join (pcase read-from
-                                                    ((or 'buffer 'subtree) (-take 2 x))
-                                                    ('research-files (-take 3 x))) " "))
-                                   headings))
-               (prompt (pcase read-from
-                         ('buffer "Insert link (cur-buf): ")
-                         ('subtree "Insert link (subtree): ")
-                         ('research-files "Insert link (files): ")))
-               (selected (ido-completing-read prompt selections))
-               (indx (-elem-index selected selections))
-               (file (pcase read-from
-                      ('research-files (format
-                                        "file:%s::"
-                                        (buffer-file-name
-                                         (get-buffer (nth 2 (nth indx headings))))))
-                      (_ "")))
-               (heading (pcase read-from
-                          ('research-files (car (nth indx headings)))
-                          (_ (car (nth indx headings))))))
-    (insert (format "[[%s*%s][%s]]" file heading (util/non-stop-words-prefix heading 2)))))
+                      ('(4) 'research-files)
+                      ('(16) 'subtree)
+                      (_ 'buffer)))
+         (clip-func (or clip-func #'identity))
+         (headings (pcase read-from
+                     ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
+                     ('research-files (apply #'-concat
+                                             (a-vals
+                                              (util/org-multi-collect-headings
+                                               #'util/org-default-heading-filter-p))))
+                     ('subtree (save-restriction
+                                 (org-narrow-to-subtree)
+                                 (util/org-collect-headings #'util/org-default-heading-filter-p)))))
+         (subtree-text-links (let ((link-re (rx "[" "[" (+ any) "]" "[" (group (+ any)) "]" "]"))
+                                   temp)
+                              (save-restriction
+                                (save-excursion
+                                  (org-narrow-to-subtree)
+                                  (goto-char (point-min))
+                                  (when (outline-next-heading)
+                                    (narrow-to-region (point-min) (point)))
+                                  (goto-char (point-min))
+                                  (while (re-search-forward link-re nil t nil)
+                                    (when (match-string 1)
+                                      (push (substring-no-properties (match-string 1)) temp)))))
+                              (when temp
+                                (mapcar (lambda (x)
+                                          (cons (concat (replace-regexp-in-string link-re "\\1" x)
+                                                        " (subtree)")
+                                                x))
+                                        (-uniq temp)))))
+         ;; subtree-text-links at the beginning of selections
+         (selections (-concat (a-keys subtree-text-links)
+                              (mapcar (lambda (x)
+                                        (string-join (pcase read-from
+                                                       ((or 'buffer 'subtree) (-take 2 x))
+                                                       ('research-files (-take 3 x))) " "))
+                                      headings)))
+         (prompt (pcase read-from
+                   ('buffer "Insert link (cur-buf): ")
+                   ('subtree "Insert link (subtree): ")
+                   ('research-files "Insert link (files): ")))
+         (selected (ido-completing-read prompt selections)))
+    (if (string-prefix-p "(subtree) " selected)
+        (insert (a-get subtree-text-links selected))
+      (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)))
+             (file (pcase read-from
+                     ('research-files (format
+                                       "file:%s::"
+                                       (buffer-file-name
+                                        (get-buffer (nth 2 (nth indx headings))))))
+                     (_ "")))
+             (heading (pcase read-from
+                        ('research-files (car (nth indx headings)))
+                        (_ (car (nth indx headings))))))
+        (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading)))))))
+
+(defun util/org-insert-citation-to-heading ()
+  "Insert a citation to a heading.
+Call `util/org-insert-link-to-heading' so that the description of
+the link is is first two words of the heading.  The headings are
+filtered by length and only headings greater than
+`util/org-min-collect-heading-length' are searched."
+  (interactive)
+  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2)))
 
 (defun util/org-collect-duplicate-headings (&optional predicate ignore-case test)
   "Collect duplicate headings in an org buffer.
@@ -1476,6 +1522,22 @@ searching."
                                    ; HACK (car bounds) gives node-property which org complains is not a drawer
                                    (goto-char (- (car bounds) 1))
                                    (org-hide-drawer-toggle))))))))
+
+(defun util/insert-heading-from-url (&optional url)
+  "Fetch the title from an optional URL.
+URL is copied from clipboard if not given."
+  (interactive)
+  (util/with-check-mode
+   'org-mode nil
+   (org-insert-heading-respect-content)
+   (newline)
+   (org-indent-line)
+   (insert "- ")
+   (yank)
+   (org-edit-headline
+    (string-trim (shell-command-to-string
+                  (format "/home/joe/lib/ref-man/env/bin/python -c 'import requests; from bs4 import BeautifulSoup; headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate, br\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}; print(BeautifulSoup(requests.get(\"%s\", headers=headers).content).title.text)'"
+                          (org-element-property :raw-link (org-element-context))))))))
 
 (provide 'util)
 
