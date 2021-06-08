@@ -6,7 +6,7 @@
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Keywords:	utility
-;; Version:     0.1
+;; Version:     0.2.0
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -130,8 +130,9 @@ Example:
               pairs)
       newlist)))
 
-(defun util/hidden-buffers (regexp &optional pred n)
+(defun util/hidden-buffers (&optional regexp pred n)
   "Get all hidden buffers matching REGEXP.
+Optional REGEXP can be left in case all buffers are returned.
 Hidden buffers are those which start with a space.  With optional
 PRED, call the function PRED on each buffer and return on those
 on which PRED returns non-nil.  When optional N is given, return
@@ -139,7 +140,9 @@ only first N buffers.  Buffers are ordered as returned by
 `buffer-list'"
   (let ((buffers (-filter (lambda (x)
                             (when (and (string-match-p "^ " (buffer-name x))
-                                       (string-match-p regexp (buffer-name x)))
+                                       (if regexp
+                                           (string-match-p regexp (buffer-name x))
+                                         t))
                               x))
                           (buffer-list))))
     (when pred
@@ -505,12 +508,15 @@ searched."
   "In *Help* buffer, copy the url under point if it exists."
   (interactive)
   (when (and (eq major-mode 'help-mode))
-    (let ((maybe-string (caadr (text-properties-at (point)))))
-      (if (stringp maybe-string)
-          (progn
-            (message maybe-string)
-            (kill-new maybe-string))
-        (message "No link under point")))))
+    (let ((maybe-string (caadr (text-properties-at (point))))
+          (maybe-url (get-text-property (point) 'help-echo)))
+      (cond ((and maybe-url (string-match-p url-handler-regexp maybe-url))
+             (message maybe-url)
+             (kill-new maybe-url))
+            ((stringp maybe-string)
+             (message maybe-string)
+             (kill-new maybe-string))
+            (t (message "No link under point"))))))
 
 ;; package utility functions
 (defun util/package-desc (pkg)
@@ -690,23 +696,38 @@ If a region is active then get all posssible in the region."
         (message (cdr (assq :url (package-desc-extras  pkg-desc))))
         (cdr (assq :url (package-desc-extras  pkg-desc)))))))
 
-(defun util/rgrep-default-search (regexp)
+(defun util/rgrep-default-search (regexp &optional exclude-dirs)
   "`rgrep' for REGEXP in current directory for files with current extension.
-Only the REGEXP pattern is asked on the prompt."
+If optional EXCLUDE-DIRS is non-nil, add them to `grep' exclude
+path.  With `current-prefix-arg', read EXCLUDE-DIRS from the
+minibuffer by the user.  The REGEXP pattern is asked on the
+prompt by default."
   (interactive (list (let ((phrase (thing-at-point 'symbol t)))
                        (read-from-minibuffer (format "Regexp (default %s): " phrase)
                                              nil nil t nil phrase))))
+  ;; (when (and current-prefix-arg (not exclude-dirs))
+  ;;   (setq exclude-dirs (split-string
+  ;;                       (read-from-minibuffer "Exclude additional dirs: ") nil t " ")))
   (unless (stringp regexp)
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
          (dir (file-name-directory fname))
          (case-fold-search t)
+         (env-dirs (when current-prefix-arg
+                     (pcase major-mode
+                       ('python-mode '("env"))
+                       ('js2-mode '("node_modules"))
+                       (_ nil))))
+         (grep-find-ignored-directories
+          (-concat env-dirs grep-find-ignored-directories))
          (files (concat "*." (car (last (split-string fname "\\."))))))
     (eval-after-load "grep"
       '(grep-compute-defaults))
-    (if current-prefix-arg
-        (grep (list regexp files))
-      (rgrep regexp files dir))))
+    (rgrep regexp files dir)
+    ;; (if current-prefix-arg
+    ;;     (grep (list regexp files))
+    ;;   (rgrep regexp files dir))
+    ))
 
 ;; FIXME: What does it do?
 (defun util/clean-generated-org-buf ()
@@ -984,7 +1005,13 @@ function calls itself a second time."
 
 ;; CHECK: perhaps should narrow to region in another buffer
 (defun util/calc-with-braces ()
-  "My utility function to calculate Sruthi's debt."
+  "A utility function to calculate amounts written with braces.
+For example, a region like:
+
+3000 (some note) + 4000 (some other note) - 10000 (some other note)
++ 5000 (note) + 6000 (etc)
+
+can be selected and the braces are ignored and the amount is summed up."
   (interactive)
   (save-excursion
     (if (use-region-p)
@@ -1306,13 +1333,15 @@ used as of now."
   "Additional property filter to apply to headings while collecting them.
 Used by `util/org-collect-headings'")
 (defun util/org-collect-headings (predicate)
-  "Return headings in an org buffer satisfying unary PREDICATE.
-See `util/org-default-heading-filter-p' for an example of such a
+  "Return headings in an org buffer.
+When optional unary PREDICATE is given, select only those
+headings which satisfy it.  See
+`util/org-default-heading-filter-p' for an example of such a
 predicate.
 
 Additionally `util/org-heading-props-filter-p' can be configured
 to filter additional headings by `org-element' properties plist."
-  (let ((el-predicate (or util/org-heading-props-filter-p #'identity))
+  (let ((el-predicate (or predicate util/org-heading-props-filter-p #'identity))
         headings)
     (save-excursion
       (goto-char (point-max))
@@ -1322,7 +1351,9 @@ to filter additional headings by `org-element' properties plist."
                (author (or (org-element-property :AUTHOR el) ""))
                (pos (org-element-property :begin el))
                (buf (buffer-name)))
-          (when (and (funcall predicate heading) (funcall el-predicate el))
+          ;; TODO: Not sure how many predicates to handle or how
+          (when (and (funcall predicate heading) ; (funcall el-predicate el)
+                     )
             (push `(,heading ,author ,buf ,pos) headings))))
       headings)))
 
@@ -1358,22 +1389,31 @@ predicate."
   (unless (-all? #'buffer-live-p util/org-multi-collect-buffers)
     (util/org-multi-collect-setup))
   (let* ((modtimes (mapcar
-                    (lambda (buf) (cons buf (file-attribute-modification-time
-                                             (file-attributes (buffer-file-name buf)))))
+                    (lambda (buf) (cons (buffer-name buf)
+                                        (file-attribute-modification-time
+                                         (file-attributes (buffer-file-name buf)))))
                     util/org-multi-collect-buffers))
          (bufnames (mapcar #'buffer-name util/org-multi-collect-buffers))
          (headings (mapcar (lambda (bufname)
                              (cons bufname
                                    (progn
-                                     (unless (and (a-get util/org-multi-collect-headings-cache bufname)
-                                                  (not (time-less-p (a-get util/org-multi-collect-modtimes
-                                                                           bufname)
-                                                                    (a-get modtimes bufname))))
+                                     ;;  buf is missing from cache
+                                     (when (or (not (a-get util/org-multi-collect-headings-cache bufname))
+                                               ;;  cached-buf-modtime < current-buf-modtime
+                                               (time-less-p (a-get util/org-multi-collect-modtimes
+                                                                   bufname)
+                                                            (a-get modtimes bufname)))
                                        (setq util/org-multi-collect-headings-cache
+                                             ;; update cache
                                              (a-assoc util/org-multi-collect-headings-cache
                                                       bufname
                                                       (with-current-buffer bufname
-                                                        (util/org-collect-headings predicate)))))
+                                                        (util/org-collect-headings predicate)))
+                                             util/org-multi-collect-modtimes
+                                             ;; update modtimes
+                                             (a-assoc util/org-multi-collect-modtimes
+                                                      bufname
+                                                      (a-get modtimes bufname))))
                                      (a-get util/org-multi-collect-headings-cache bufname))))
                            bufnames)))
     headings))
@@ -1395,10 +1435,42 @@ Stop words list is `util/stop-words'."
                  (split-string string))
     (string-join (reverse words) " ")))
 
-(defun util/org-insert-link-to-heading (&optional clip-func)
+(defun util/org-get-text-links (link-re narrow)
+  "Get all the links matching LINK-RE in an org buffer.
+When NARROW is non-nil, first narrow to subtree."
+  (let (temp)
+    (save-restriction
+      (save-excursion
+        (when narrow
+          (org-narrow-to-subtree))
+        (goto-char (point-min))
+        ;; (when (outline-next-heading)
+        ;;   (narrow-to-region (point-min) (point)))
+        ;; (goto-char (point-min))
+        (while (re-search-forward link-re nil t nil)
+          (when (and (match-string 1) (match-string 2))
+            (push (list (substring-no-properties (match-string 2))
+                        (substring-no-properties (match-string 1)))
+                  temp)))))
+    temp))
+
+(defvar util/org-insert-link-to-heading-prefix-behaviour '(((4) . subtree) ((16) . buffer))
+  ;; '(subtree buffer research-files)
+  "Behaviour of `current-prefix-arg' for `util/org-insert-link-to-heading'.
+A list of symbols `subtree' `research-files' `buffer'.  The first
+element in the list corresponds to single universal prefix
+argument `C-u'.  The second element to two universal
+prefix arguments and the last one to no argument.")
+
+(defun util/org-insert-link-to-heading (&optional clip-func citation)
   "Insert a link to selected heading.
 Description of the link is determined by optional CLIP-FUNC.
 If not given, it defaults to `identity'.
+
+If optional CITATION is non-nil, the headings are gathered for
+only the current buffer and citations within the current
+`doc-root' are searched. A `doc-root' is an org subtree with the
+non-nil property DOC_ROOT.
 
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
@@ -1406,11 +1478,13 @@ For customizing how headings are gathered, change the function
 See also, `util/org-collect-headings' and
 `util/org-multi-collect-headings'."
   (interactive)
-  (let* ((read-from (pcase current-prefix-arg
-                      ('(4) 'research-files)
-                      ('(16) 'subtree)
-                      (_ 'buffer)))
+  (let* ((read-from (or (and citation 'buffer)
+                        (a-get util/org-insert-link-to-heading-prefix-behaviour
+                               current-prefix-arg)
+                        'research-files))
          (clip-func (or clip-func #'identity))
+         (text-link-re (rx "[" "[" (group (seq (or (regexp "file.+::\\*") "*" "http") (+? any))) "]"
+                           "[" (group (+? any)) "]" "]"))
          (headings (pcase read-from
                      ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
                      ('research-files (apply #'-concat
@@ -1420,26 +1494,36 @@ See also, `util/org-collect-headings' and
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
                                  (util/org-collect-headings #'util/org-default-heading-filter-p)))))
-         (subtree-text-links (let ((link-re (rx "[" "[" (+ any) "]" "[" (group (+ any)) "]" "]"))
-                                   temp)
-                              (save-restriction
+         (doc-root (when citation
+                     (save-excursion
+                       (let (is-doc-root no-doc-root)
+                         (while (and (not is-doc-root) (not no-doc-root))
+                           (condition-case nil
+                               (outline-up-heading 1 t)
+                             (error (setq no-doc-root t)))
+                           (setq is-doc-root (org-entry-get (point) "DOC_ROOT")))
+                         (and is-doc-root (point))))))
+         (subtree-text-links (when citation
+                               (let ((temp (util/org-get-text-links text-link-re t)))
+                                 (when temp
+                                   (mapcar (lambda (x)
+                                             (cons (concat (replace-regexp-in-string text-link-re "\\2" (car x))
+                                                           " (subtree)")
+                                                   x))
+                                           (-uniq temp))))))
+         (doc-root-text-links (when (and citation doc-root)
                                 (save-excursion
-                                  (org-narrow-to-subtree)
-                                  (goto-char (point-min))
-                                  (when (outline-next-heading)
-                                    (narrow-to-region (point-min) (point)))
-                                  (goto-char (point-min))
-                                  (while (re-search-forward link-re nil t nil)
-                                    (when (match-string 1)
-                                      (push (substring-no-properties (match-string 1)) temp)))))
-                              (when temp
-                                (mapcar (lambda (x)
-                                          (cons (concat (replace-regexp-in-string link-re "\\1" x)
-                                                        " (subtree)")
-                                                x))
-                                        (-uniq temp)))))
+                                  (goto-char doc-root)
+                                  (let ((temp (util/org-get-text-links text-link-re t)))
+                                    (when temp
+                                      (mapcar (lambda (x)
+                                                (cons (concat (replace-regexp-in-string text-link-re "\\2" (car x))
+                                                              " (citations)")
+                                                      x))
+                                              (-uniq temp)))))))
          ;; subtree-text-links at the beginning of selections
          (selections (-concat (a-keys subtree-text-links)
+                              (a-keys doc-root-text-links)
                               (mapcar (lambda (x)
                                         (string-join (pcase read-from
                                                        ((or 'buffer 'subtree) (-take 2 x))
@@ -1450,19 +1534,22 @@ See also, `util/org-collect-headings' and
                    ('subtree "Insert link (subtree): ")
                    ('research-files "Insert link (files): ")))
          (selected (ido-completing-read prompt selections)))
-    (if (string-prefix-p "(subtree) " selected)
-        (insert (a-get subtree-text-links selected))
-      (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)))
-             (file (pcase read-from
-                     ('research-files (format
-                                       "file:%s::"
-                                       (buffer-file-name
-                                        (get-buffer (nth 2 (nth indx headings))))))
-                     (_ "")))
-             (heading (pcase read-from
-                        ('research-files (car (nth indx headings)))
-                        (_ (car (nth indx headings))))))
-        (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading)))))))
+    (cond ((string-suffix-p " (subtree)" selected)
+           (insert (apply #'format "[[%s][%s]]" (reverse (a-get subtree-text-links selected)))))
+          ((string-suffix-p " (citations)" selected)
+           (insert (apply #'format "[[%s][%s]]" (reverse (a-get doc-root-text-links selected)))))
+          (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
+                             (length doc-root-text-links)))
+                    (file (pcase read-from
+                            ('research-files (format
+                                              "file:%s::"
+                                              (buffer-file-name
+                                               (get-buffer (nth 2 (nth indx headings))))))
+                            (_ "")))
+                    (heading (pcase read-from
+                               ('research-files (car (nth indx headings)))
+                               (_ (car (nth indx headings))))))
+               (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading))))))))
 
 (defun util/org-insert-citation-to-heading ()
   "Insert a citation to a heading.
@@ -1471,7 +1558,7 @@ the link is is first two words of the heading.  The headings are
 filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched."
   (interactive)
-  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2)))
+  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t))
 
 (defun util/org-collect-duplicate-headings (&optional predicate ignore-case test)
   "Collect duplicate headings in an org buffer.
@@ -1538,6 +1625,20 @@ URL is copied from clipboard if not given."
     (string-trim (shell-command-to-string
                   (format "/home/joe/lib/ref-man/env/bin/python -c 'import requests; from bs4 import BeautifulSoup; headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate, br\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}; print(BeautifulSoup(requests.get(\"%s\", headers=headers).content).title.text)'"
                           (org-element-property :raw-link (org-element-context))))))))
+
+(defun util/run-python-file-from-str (str &optional python-path args)
+  "Write the given python string STR to a temp file and run with python.
+If optional PYTHON-PATH is given, that python executable is used
+to run the script.  Optional ARGS is an list of arguments to
+format the string."
+  (let ((formatted-string (apply #'format (cons str args)))
+        (python (or python-path (executable-find "python")))
+        (tfile (make-temp-file "util-py-")))
+    (with-temp-file tfile
+      (insert formatted-string))
+    ;; (make-process)
+    ;; write temp file and run process with python
+    ))
 
 (provide 'util)
 
