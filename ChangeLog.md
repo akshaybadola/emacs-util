@@ -1,4 +1,4 @@
-# [2021-06-08 Tue 14:32]
+## [2021-06-08 Tue 14:32]
 - Added ChangeLog and License.
 - `util/hidden-buffers` now has regexp optional.
 - Bug fix for `util/try-copy-help-buffer-link`.
@@ -14,3 +14,7 @@
 - Added a function `util/run-python-file-from-str` but it isn't useful yet.
 - Version bump to 0.2.0.
 
+## [2021-06-08 Tue 14:32]
+- Separated some functionality of `util/org-insert-link-to-heading` into
+  subroutines.
+- Added suggestions from `references` in `util/org-insert-link-to-heading`

@@ -1334,26 +1334,20 @@ used as of now."
 Used by `util/org-collect-headings'")
 (defun util/org-collect-headings (predicate)
   "Return headings in an org buffer.
-When optional unary PREDICATE is given, select only those
-headings which satisfy it.  See
-`util/org-default-heading-filter-p' for an example of such a
-predicate.
-
-Additionally `util/org-heading-props-filter-p' can be configured
-to filter additional headings by `org-element' properties plist."
-  (let ((el-predicate (or predicate util/org-heading-props-filter-p #'identity))
-        headings)
+Select only those headings which satisfy the unary PREDICATE.
+See `util/org-default-heading-filter-p' for an example of such a
+predicate."
+  (let (headings)
     (save-excursion
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
         (let* ((el (org-element-at-point))
-               (heading (org-element-property :title el))
+               (heading (or (org-element-property :title el)
+                            (org-get-heading t t t t)))
                (author (or (org-element-property :AUTHOR el) ""))
                (pos (org-element-property :begin el))
                (buf (buffer-name)))
-          ;; TODO: Not sure how many predicates to handle or how
-          (when (and (funcall predicate heading) ; (funcall el-predicate el)
-                     )
+          (when (funcall predicate heading)
             (push `(,heading ,author ,buf ,pos) headings))))
       headings)))
 
@@ -1462,6 +1456,40 @@ element in the list corresponds to single universal prefix
 argument `C-u'.  The second element to two universal
 prefix arguments and the last one to no argument.")
 
+(defun util/org-heading-first-subheading ()
+  "Return the point of first subheading if heading has subheadings.
+If no subheadings exist, return nil."
+  (save-restriction
+    (save-excursion
+      (org-narrow-to-subtree)
+      (outline-next-heading))))
+
+(defun util/org-get-tree-prop (prop)
+  "Return property PROP if it exists in headings' parents."
+  (save-excursion
+    (let (is-doc-root no-doc-root)
+      (while (and (not is-doc-root) (not no-doc-root))
+        (condition-case nil
+            (outline-up-heading 1 t)
+          (error (setq no-doc-root t)))
+        (setq is-doc-root (org-entry-get (point) prop)))
+      (and is-doc-root (point)))))
+
+(defun util/org-heading-matching-re (re &optional subtree)
+  "Goto first heading matching regexp RE.
+If optional SUBTREE is non-nil, search only in current subtree."
+  (save-restriction
+    (save-excursion
+      (when subtree
+        (org-narrow-to-subtree))
+      (let ((case-fold-search t)
+            ref)
+        (while (outline-next-heading)
+          (when (string-match-p re
+                                (string-trim (org-get-heading t t t t)))
+            (setq ref (point))))
+        ref))))
+
 (defun util/org-insert-link-to-heading (&optional clip-func citation)
   "Insert a link to selected heading.
 Description of the link is determined by optional CLIP-FUNC.
@@ -1494,15 +1522,8 @@ See also, `util/org-collect-headings' and
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
                                  (util/org-collect-headings #'util/org-default-heading-filter-p)))))
-         (doc-root (when citation
-                     (save-excursion
-                       (let (is-doc-root no-doc-root)
-                         (while (and (not is-doc-root) (not no-doc-root))
-                           (condition-case nil
-                               (outline-up-heading 1 t)
-                             (error (setq no-doc-root t)))
-                           (setq is-doc-root (org-entry-get (point) "DOC_ROOT")))
-                         (and is-doc-root (point))))))
+         (doc-root (when citation (util/org-get-tree-prop "DOC_ROOT")))
+         ;; org links in current subtree text
          (subtree-text-links (when citation
                                (let ((temp (util/org-get-text-links text-link-re t)))
                                  (when temp
@@ -1511,6 +1532,7 @@ See also, `util/org-collect-headings' and
                                                            " (subtree)")
                                                    x))
                                            (-uniq temp))))))
+         ;; org links in text from the document root
          (doc-root-text-links (when (and citation doc-root)
                                 (save-excursion
                                   (goto-char doc-root)
@@ -1521,9 +1543,30 @@ See also, `util/org-collect-headings' and
                                                               " (citations)")
                                                       x))
                                               (-uniq temp)))))))
-         ;; subtree-text-links at the beginning of selections
+         ;; Get links from subtree in references section of doc root if it
+         ;; exists
+         (references (save-excursion
+                       (if doc-root
+                           (goto-char doc-root)
+                         (outline-back-to-heading))
+                       (let* ((refs (util/org-heading-matching-re "^references$" t))
+                              (sub (when refs
+                                     (goto-char refs)
+                                     (util/org-heading-first-subheading))))
+                         (and refs sub
+                              (save-restriction
+                                (org-narrow-to-subtree)
+                                (narrow-to-region sub (point-max))
+                                (util/org-collect-headings #'identity))))))
+         ;; `subtree-text-links' at the beginning of selections
+         ;; then `doc-root-text-links'
+         ;; then `references'
+         ;; then rest of headings
          (selections (-concat (a-keys subtree-text-links)
                               (a-keys doc-root-text-links)
+                              (mapcar (lambda (x)
+                                        (concat (string-join (-take 2 x) " ") " (references)"))
+                                      references)
                               (mapcar (lambda (x)
                                         (string-join (pcase read-from
                                                        ((or 'buffer 'subtree) (-take 2 x))
@@ -1538,8 +1581,13 @@ See also, `util/org-collect-headings' and
            (insert (apply #'format "[[%s][%s]]" (reverse (a-get subtree-text-links selected)))))
           ((string-suffix-p " (citations)" selected)
            (insert (apply #'format "[[%s][%s]]" (reverse (a-get doc-root-text-links selected)))))
+          ((string-suffix-p " (references)" selected)
+           (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
+                           (length doc-root-text-links)))
+                  (heading (car (nth indx references))))
+             (insert (format "[[%s*%s][%s]]" "" heading (funcall clip-func heading)))))
           (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
-                             (length doc-root-text-links)))
+                             (length doc-root-text-links) (length references)))
                     (file (pcase read-from
                             ('research-files (format
                                               "file:%s::"
@@ -1606,7 +1654,7 @@ searching."
                              (save-excursion
                                (let ((bounds (org-get-property-block)))
                                  (when bounds
-                                   ; HACK (car bounds) gives node-property which org complains is not a drawer
+                                   ;; HACK (car bounds) gives node-property which org complains is not a drawer
                                    (goto-char (- (car bounds) 1))
                                    (org-hide-drawer-toggle))))))))
 
