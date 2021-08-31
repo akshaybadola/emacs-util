@@ -18,3 +18,16 @@
 - Separated some functionality of `util/org-insert-link-to-heading` into
   subroutines.
 - Added suggestions from `references` in `util/org-insert-link-to-heading`
+- Added macros `util/with-check-mode`, `util/with-org-mode` etc.
+- Added time stamp functions `util/insert-or-update-time-stamp-at-point`,
+  `util/insert-or-update-today`
+- Added org utility functions `util/org-apply-to-buffer-headings`,
+  `util/org-apply-to-subtree-headings`, `util/org-heading-and-body-bounds`,
+  `util/org-get-subtree-with-body-for-heading-matching-re`
+- Modified `util/org-multi-collect-headings` to optionally return only headings
+  for `bufname`. Slight modifications to few other org functions.
+- `util/org-collect-duplicate-headings` is now much faster.
+- Added `util/org-helm-*` helm actions.
+- Added ffip like grep commands `util/ffip-search-paths`, `util/ffip-search`,
+  `util/ffip-grep-default`, `util/ffip-grep-git-files` and associated functions.
+- Version bump to `0.3.0`.

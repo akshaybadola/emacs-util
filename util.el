@@ -5,9 +5,10 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
+;; Time-stamp:	<Tuesday 31 August 2021 10:14:00 AM IST>
 ;; Keywords:	utility
-;; Version:     0.2.0
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
+;; Version:     0.3.0
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -39,6 +40,7 @@
 (require 'cl-lib)
 (require 'dash)
 (require 'dired)
+(require 'find-file-in-project)
 (require 'grep)
 (require 'gv)
 (require 'ibuffer)
@@ -50,6 +52,9 @@
 (require 'tern)
 (require 'time-stamp)
 (require 'xr)
+
+(defvar util/insert-heading-python-executable "/usr/bin/python"
+  "The python executable for `util/insert-heading-from-url'")
 
 (defvar parse-time-weekdays)
 
@@ -96,6 +101,11 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
+(defvar util/org-file-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? any))) "]"
+                                  "[" (group (+? any)) "]" "]"))
+(defvar util/org-text-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*" "http") (+? any))) "]"
+                                 "[" (group (+? any)) "]" "]"))
+
 
 (declare-function org-hide-drawer-toggle "org")
 
@@ -103,6 +113,39 @@ Used by `util/org-execute-simple-regexp-search'.")
   "Short for (cdr (assoc ELEM) list).
 Argument ALIST association list."
     (cdr (assoc elem alist)))
+
+(defmacro util/with-check-mode (mode msg-prefix &rest body)
+  "Execute BODY only if `major-mode' equals MODE.
+Otherwise message not in MODE.  MSG-PREFIX can be used to indicate
+the package from which the macro is invoked.  If MSG-PREFIX is
+nil, then nothing is prefixed to the message."
+  `(if (eq major-mode ,mode)
+       (progn ,@body)
+     (message "%sNot in %s"
+              (if ,msg-prefix (concat ,msg-prefix " ") "")
+              ,mode)))
+
+(defmacro util/with-org-mode (&rest body)
+  "Call form `body' only if major-mode is `org-mode'."
+  (declare (debug (body)))
+  `(util/with-check-mode
+    'org-mode nil
+    ,@body))
+
+(defmacro util/measure-time (&rest body)
+  "Measure the time it takes to evaluate BODY."
+  `(let ((time (current-time)))
+     ,@body
+     (message "%.06f" (float-time (time-since time)))))
+
+(defmacro util/measure-time-n (n &rest body)
+  "Measure the time it takes to evaluate BODY.
+Sum over N iterations."
+  `(let ((time (current-time)))
+     (dotimes (i ,n)
+       ,@body)
+     (message "Mean runtime %.06f seconds over %s runs"
+              (/ (float-time (time-since time)) ,n) ,n)))
 
 (defun util/insert (&rest args)
   "Insert ARGS as strings."
@@ -125,8 +168,9 @@ Example:
     (let (newlist)
       (seq-do (lambda (x)
                 (if (a-has-key newlist (car x))
-                    (setq newlist (a-update newlist (car x) (lambda (y) (push (cdr x) y))))
-                  (push (list (car x) (cdr x)) newlist)))
+                    (setq newlist (a-update newlist (car x)
+                                            (lambda (y) (-flatten (list (cdr x) y)))))
+                  (push (cons (car x) (cdr x)) newlist)))
               pairs)
       newlist)))
 
@@ -267,7 +311,14 @@ See `time-stamp-format' for how to use the format."
     (setq ts-list (list (car ts-list) (cdr ts-list))))
   (mapconcat (lambda (x)
               (concat "\\(" (util/org-time-stamp-regexp x) "\\)"))
-            ts-list "\\|"))
+             ts-list "\\|"))
+
+(defun util/org-remove-all-time-stamps ()
+  (util/with-org-mode
+   (goto-char (point-min))
+   (while (re-search-forward (util/generate-org-ts-regexp org-time-stamp-formats)
+                             nil t)
+     (replace-match ""))))
 
 ;; TODO: Check the time stamp format and only then update accordingly
 ;;       Convert to full in same format <>, [] or "".
@@ -283,22 +334,68 @@ See `time-stamp-format' for how to use the format."
   ;;(let (time-stamp-format "\"%:a %2d %:b %:y %02H:%02M:%02S %Z\""))
   (insert (time-stamp-string "\"%:a %2d %:b %:y %02H:%02M:%02S %Z\"")))
 
-(defun util/goto-latest-time-stamp ()
-  "Goto the latest `time-stamp'.
-Like `util/org-goto-latest-timestamp' but for all buffers."
-  )
 
-(defun util/occur-sorted-timestamps ()
-  "Goto the latest `time-stamp'.
-Like `util/org-occur-sorted-timestamps' but for all buffers."
-  )
+;; TODO
+;; (defun util/upate-time-stamps-in-project ()
+;;   )
+
+;; NOTE: util/time-stamp-start etc. were written to update TS like
+;;       [2021-07-28 Wed 15:12] at point but `org-time-stamp' does a better job
+;;       of it
+;;
+;; (defvar util/time-stamp-start "\\([<[]\\)")
+;; (defvar util/time-stamp-end "\\([]>]\\)")
+
+(defun util/insert-or-update-time-stamp-at-point (&optional ts-format)
+  "Insert or update a time stamp at point.
+Default is to use a time stamp like `date' command.  With
+optional TS-FORMAT, use that `time-stamp-format'."
+  (interactive)
+  (save-excursion
+    (pcase-let* ((cur-point (point))
+                 (`(,beg ,end) (list (re-search-backward time-stamp-start (point-at-bol) t)
+                                     (re-search-forward time-stamp-end (point-at-eol) t)))
+                 (time-stamp-format (or ts-format "%:A %02d %:B %Y %02H:%02M:%02S %P %Z")))
+      ;; (unless (and beg end)
+      ;;   (setq beg (re-search-backward util/time-stamp-start (point-at-bol) t))
+      ;;   (setq end (re-search-forward util/time-stamp-end (point-at-eol) t)))
+      (if (and beg end)
+          (time-stamp)
+        (goto-char cur-point)
+        (insert (format "<%s>" (time-stamp-string)))))))
+
+(defun util/insert-or-update-today ()
+  "Insert or update time stamp with format `[%:y-%02m-%02d]' at point.
+See `time-stamp-string' for details."
+  (interactive)
+  (save-excursion
+    (cond ((looking-back "\\]" (point-at-bol))
+           (backward-sexp))
+          ((looking-at-p "[0-9-]\\|\\]")
+           (backward-up-list))
+          (t nil))
+    (when (looking-at "\\[[0-9-]+]")
+      (apply #'delete-region (match-data))))
+  (insert (time-stamp-string "[%:y-%02m-%02d]")))
+
+;; TODO:
+;; (defun util/goto-latest-time-stamp-open-buffers ()
+;;   "Goto the latest `time-stamp'.
+;; Like `util/org-goto-latest-timestamp' but for all buffers."
+;;   )
+
+;; TODO:
+;; (defun util/occur-sorted-timestamps-open-buffers ()
+;;   "Goto the latest `time-stamp'.
+;; Like `util/org-occur-sorted-timestamps' but for all buffers."
+;;   )
 
 (defun util/decode-time-stamp (ts)
   "Similar to `decode-time' but for time stamp TS."
   (pcase-let* ((`(,date ,day ,time) (split-string (substring ts 1 -1) " "))
                (`(,dy ,dm ,dd) (mapcar #'string-to-number (split-string date "-")))
                (`(,hh ,mm) (mapcar #'string-to-number (split-string time ":"))))
-    (list 0 mm hh dd dm dy (cdass (downcase day) parse-time-weekdays) nil nil)))
+    (list 0 mm hh dd dm dy (a-get parse-time-weekdays (downcase day)) nil nil)))
 
 (defun util/time-stamp-less-p (A B)
   "Similar to `time-less-p' but for time stamps A and B."
@@ -316,17 +413,18 @@ If optional BUF is given then search in that instead.  By default
 search only in current subtree.  With a universal argument,
 `\\[universal-argument]' search in full buffer."
   (interactive)
-  (save-restriction
-    (with-current-buffer (if buf buf (current-buffer))
-      (unless current-prefix-arg
-        (org-narrow-to-subtree))
-      (goto-char (cdr (car (cl-sort
-                            (org-element-map (org-element-parse-buffer) 'timestamp
-                              (lambda (timestamp)
-                                `(,(org-element-property :raw-value timestamp)
-                                  . ,(org-element-property :begin timestamp))))
-                            'org-time> :key 'car))))
-      (org-reveal))))
+  (util/with-org-mode
+   (save-restriction
+     (with-current-buffer (if buf buf (current-buffer))
+       (unless current-prefix-arg
+         (org-narrow-to-subtree))
+       (goto-char (cdr (car (cl-sort
+                             (org-element-map (org-element-parse-buffer) 'timestamp
+                               (lambda (timestamp)
+                                 `(,(org-element-property :raw-value timestamp)
+                                   . ,(org-element-property :begin timestamp))))
+                             'org-time> :key 'car))))
+       (org-reveal)))))
 
 (defun util/org-occur-sorted-timestamps (&optional ts-regexp)
   "Run `occur' in the current org buffer for timestamps.
@@ -336,51 +434,78 @@ buffer.  With optional TS-REGEXP, search is done for that
 regexp.  Default is to generate the regexp from
 `util/generate-org-ts-regexp'."
   (interactive)
-  (save-restriction
-    (let ((case-fold-search nil))
-      (unless current-prefix-arg
-        (org-narrow-to-subtree))
-      (unless ts-regexp
-        (setq ts-regexp (util/generate-org-ts-regexp org-time-stamp-formats)))
-      ;; NOTE: old ts-regexp
-      ;; (setq ts-regexp "\\[[0-9].*?[0-9]\\]")
-      (occur ts-regexp)
-      (other-window 1)
-      (read-only-mode -1)
-      (goto-char 0)
-      (forward-line)
-      ;; NOTE: This may not be generally valid but We use this as the time stamp
-      ;;       is formatted YYYY-MM-DD first for us.
-      ;;       Can use `util/time-stamp-less-p'
-      ;;       I think the sorting mechanism may also have to change in that case.
-      (sort-regexp-fields -1 "^.*$" ts-regexp (point) (buffer-end 1))
-      (read-only-mode))))
+  (util/with-org-mode
+   (save-restriction
+     (let ((case-fold-search nil))
+       (unless current-prefix-arg
+         (org-narrow-to-subtree))
+       (unless ts-regexp
+         (setq ts-regexp (util/generate-org-ts-regexp org-time-stamp-formats)))
+       ;; NOTE: old ts-regexp
+       ;; (setq ts-regexp "\\[[0-9].*?[0-9]\\]")
+       (occur ts-regexp)
+       (other-window 1)
+       (read-only-mode -1)
+       (goto-char 0)
+       (forward-line)
+       ;; NOTE: This may not be generally valid but We use this as the time stamp
+       ;;       is formatted YYYY-MM-DD first for us.
+       ;;       Can use `util/time-stamp-less-p'
+       ;;       I think the sorting mechanism may also have to change in that case.
+       (sort-regexp-fields -1 "^.*$" ts-regexp (point) (buffer-end 1))
+       (read-only-mode)))))
 
 (defun util/org-num-finished ()
   "Message the number of FINISHED items in subtree."
   (interactive)
-  (if (eq major-mode 'org-mode)
-      (save-restriction
-        (org-narrow-to-subtree)
-        (goto-char (point-min))
-        (message (format "%s" (count-matches "\* FINISHED"))))
-    (message "Not in org-mode")))
+  (util/with-org-mode
+   (save-restriction
+     (org-narrow-to-subtree)
+     (goto-char (point-min))
+     (message (format "%s" (count-matches "\* FINISHED"))))))
+
+(defun util/org-apply-to-buffer-headings (fn)
+  "Apply the function `FN' to each heading in buffer.
+Return the result of the application."
+  (save-excursion
+    (goto-char (point-min))
+    (let (result)
+      (while (outline-next-heading)
+        (push (funcall fn) result))
+      result)))
+
+(defun util/org-apply-to-subtree-headings (fn all-levels)
+  "Apply the function `FN' to each child heading of the current heading.
+Return the result of the application.  When ALL-LEVELS is
+non-nil, subheadings at all levels are return. Default is to
+return only one level lower than the current heading."
+  (save-excursion
+    (save-restriction
+      (org-narrow-to-subtree)
+      (goto-char (point-min))
+      (let ((level (org-outline-level))
+            result)
+        (while (outline-next-heading)
+          (when (or all-levels (= (org-outline-level) (+ level 1)))
+            (push (funcall fn) result)))
+        result))))
 
 (defun util/org-count-subtree-children ()
-  "Display the number of elements of immediate children of current subtree."
+  "Return and display the number of headings of current subtree."
   (interactive)
-  (if (eq major-mode 'org-mode)
-      (save-excursion
-        (save-restriction
-          (org-narrow-to-subtree)
-          (goto-char (point-min))
-          (let ((level (org-outline-level))
-                (children 0))
-            (while (outline-next-heading)
-              (when (= (org-outline-level) (+ level 1))
-                (cl-incf children)))
-            (message (format "Subtree has %s children" children)))))
-    (message "Not in org-mode")))
+  (util/with-org-mode
+   (save-excursion
+     (save-restriction
+       (org-narrow-to-subtree)
+       (goto-char (point-min))
+       (let ((level (org-outline-level))
+             (children 0))
+         (while (outline-next-heading)
+           (when (= (org-outline-level) (+ level 1))
+             (cl-incf children)))
+         (prog1 children
+           (when (called-interactively-p 'any)
+             (message (format "Subtree has %s children" children)))))))))
 
 (defun util/org-copy-subtree-elems (pred)
   "Copy all children subtrees of current heading for non-nil PRED.
@@ -413,28 +538,27 @@ satisfy PRED, they will also be copied as part of the subtree."
 When called interactively and with a \\[universal-argument] PROP
 is input from user.  It defaults to PDF_FILE if not given."
   (interactive)
-  (if (eq major-mode 'org-mode)
-      (let ((prop (or prop (and current-prefix-arg
-                                (read-from-minibuffer "Property name: "))
-                      "PDF_FILE"))
-            (count 0)
-            kill-str)
-        (save-excursion
-          (save-restriction
-            (org-narrow-to-subtree)
-            (goto-char (point-min))
-            (let ((level (org-outline-level)))
-              (while (outline-next-heading)
-                (when (= (org-outline-level) (+ level 1))
-                  (let ((val (org-entry-get (point) prop)))
-                    (when (and val (not (string-empty-p val)))
-                      (cl-incf count)
-                      (let ((beg (progn (beginning-of-line) (point)))
-                            (end (org-end-of-subtree t)))
-                        (push (buffer-substring-no-properties beg end) kill-str)))))))
-            (kill-new (mapconcat #'identity kill-str "\n"))
-            (message (format "Copied %s subtrees" count)))))
-    (message "Not in org-mode")))
+  (util/with-org-mode
+   (let ((prop (or prop (and current-prefix-arg
+                             (read-from-minibuffer "Property name: "))
+                   "PDF_FILE"))
+         (count 0)
+         kill-str)
+     (save-excursion
+       (save-restriction
+         (org-narrow-to-subtree)
+         (goto-char (point-min))
+         (let ((level (org-outline-level)))
+           (while (outline-next-heading)
+             (when (= (org-outline-level) (+ level 1))
+               (let ((val (org-entry-get (point) prop)))
+                 (when (and val (not (string-empty-p val)))
+                   (cl-incf count)
+                   (let ((beg (progn (beginning-of-line) (point)))
+                         (end (org-end-of-subtree t)))
+                     (push (buffer-substring-no-properties beg end) kill-str)))))))
+         (kill-new (mapconcat #'identity kill-str "\n"))
+         (message (format "Copied %s subtrees" count)))))))
 
 (defun util/org-execute-simple-regexp-search (str)
   "Find the link for a search string STR with a simple `re-search-forward'.
@@ -444,7 +568,8 @@ When no function in `org-execute-file-search-functions' matches
 suffices.  This function does just that.  Adapated from
 `org-execute-file-search-in-bibtex'."
   ;; modes that we want to override
-  (when (member major-mode util/org-simple-regexp-search-modes)
+  (let ((case-fold-search t))
+    (when (member major-mode util/org-simple-regexp-search-modes)
     (pop-to-buffer (current-buffer))
     (goto-char (point-min))
     (and (re-search-forward str nil t)
@@ -459,7 +584,7 @@ suffices.  This function does just that.  Adapated from
       ;; (recenter 0)
       )
     ;; return t to indicate that the search is done.
-    t))
+    t)))
 
 ;; TODO: In case there are multiple matches, list all
 (defun util/org-execute-org-heading-max-match-search (str)
@@ -468,33 +593,46 @@ If heading contains less than 3 words, then an exact match is
 searched."
   (when (derived-mode-p 'org-mode)
     (let* ((buf (current-buffer))
+           (case-fold-search t)
            (words (split-string (string-remove-prefix "*" str) " "))
-           (title-re
-	    (format (rx bol (+ "*") " "
-                        (opt (eval `(group
-                                     ,(nconc (if (eq major-mode 'org-mode)
-                                                 (cadr (xr org-todo-regexp))
-                                               '(or)) '("COMMENT")))) " ")
-                        (group "%s")
-                        eol)
-		    (if (< (length words) 3)
-                        (string-join words " ")
-                      (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".+"))))
-	   (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
-	   (comment-re (format "\\`%s[ \t]+" org-comment-string))
+           (todo-comment-re (if (derived-mode-p 'org-mode)
+                                (rx (group (regexp org-todo-regexp)))
+                              (rx (or (regexp org-comment-string)))))
+           (title (if (< (length words) 3)
+                      (string-join words " ")
+                    (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".*")))
+           (title-re (rx bol (+ "*") " "
+                       (opt (seq (regexp todo-comment-re) " "))
+                       (group (regexp title))
+                       eol))
+           ;; (title-re
+           ;;  (format (rx bol (+ "*") " "
+           ;;              (opt (eval `(group
+           ;;                           ,(nconc (if (eq major-mode 'org-mode)
+           ;;                                       (cadr (xr org-todo-regexp))
+           ;;                                     '(or))
+           ;;                                   '("COMMENT"))))
+           ;;                   " ")
+           ;;              (group "%s")
+           ;;              eol)
+           ;;          (if (< (length words) 3)
+           ;;              (string-join words " ")
+           ;;            (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".+"))))
+           (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
+           (comment-re org-comment-regexp)
            matches)
       (with-current-buffer buf
         ;; (switch-to-buffer buf)
         (goto-char (point-min))
         (while (re-search-forward title-re nil t)
           (push (list (length (-intersection words
-		                             (split-string
-		                              (replace-regexp-in-string
-		                               cookie-re ""
-		                               (replace-regexp-in-string
-		                                comment-re "" (org-get-heading t t t))))))
+                                             (split-string
+                                              (replace-regexp-in-string
+                                               cookie-re ""
+                                               (replace-regexp-in-string
+                                                comment-re "" (org-get-heading t t t t))))))
                       (point))
-	        matches))
+                matches))
         (when matches
           (goto-char (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches)))
           (beginning-of-line)
@@ -696,18 +834,138 @@ If a region is active then get all posssible in the region."
         (message (cdr (assq :url (package-desc-extras  pkg-desc))))
         (cdr (assq :url (package-desc-extras  pkg-desc)))))))
 
-(defun util/rgrep-default-search (regexp &optional exclude-dirs)
+(defun util/ffip-gitignore-expr (expr)
+  "Generate patterns for use with find command according to EXPR."
+  (cond ((string-suffix-p "/" expr)
+         (--> expr
+           (replace-regexp-in-string "\\*" "\\\\*" it)
+           (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1" it)
+           (replace-regexp-in-string (rx  (group (+ any)) "/" eol) "\\1" it)
+           (cons 'prune (format "-path %s%s\\*"
+                           (if (string-prefix-p "./" it) "" "\\*") it))))
+        (t
+         (cons 'exclude (->> expr
+           (replace-regexp-in-string "\\*" "\\\\*")
+           (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1")
+           (format "\\! -path \\*%s\\*"))))))
+
+(defun util/ffip-search-paths (pat)
+  "Like `util/ffip-search' but search pattern PAT as path instead."
+  (interactive
+   (list (read-string "Enter the search term: ")))
+  (util/ffip-search pat t))
+
+(defvar util/ffip-debug nil)
+(defvar util/ffip-debug-cmd nil)
+(defun util/ffip-search (&optional pattern search-for-path)
+  "Search for PATTERN and list files in the project in a dired buffer.
+If optional VC or `current-prefix-arg' is non-nil and if the
+project is version controlled (git only for now) then list all
+the files in version control.
+
+Optional SEARCH-FOR-PATH modifies the find behaviour to use
+\"-ipath\" instead of \"-iname\"."
+  (interactive "p")
+  (let* ((ci (not pattern))
+         (pattern (pcase pattern
+                    ((pred stringp) pattern)
+                    (1 (read-string "Enter the search term: "))
+                    ('nil (user-error "Error. Pattern is required if not called interactively."))
+                    (_ pattern)))
+         (root (ffip-project-root))
+         (gitignore (f-join root ".gitignore"))
+         (gitignore-open (find-buffer-visiting gitignore))
+         (prune-patterns (-uniq (-concat (mapcar
+                                          (lambda (x) (replace-regexp-in-string "^\\*/\\(.+\\)" "/\\1/" x))
+                                          ffip-prune-patterns)
+                                         '("/env/" "/node_modules/" "/build/" "/dist/"))))
+         excludes)
+    (when (f-exists? gitignore)
+      (with-current-buffer (find-file-noselect gitignore)
+        (setq prune-patterns
+              (mapcar #'util/ffip-gitignore-expr
+                      (-concat prune-patterns
+                               (split-string
+                                (replace-regexp-in-string
+                                 "#.*" ""
+                                 (buffer-substring-no-properties (point-min) (point-max)))))))
+        (setq excludes (-keep (lambda (x) (and (eq (car x) 'exclude) (cdr x))) prune-patterns))
+        (setq prune-patterns (-keep (lambda (x) (and (eq (car x) 'prune) (cdr x))) prune-patterns))
+        (unless gitignore-open
+          (kill-buffer (current-buffer)))))
+    (let* ((cmd (format "find %s %s \\( %s \\) %s %s -type f -print"
+                        root
+                        (format " \\( %s \\) -prune -o " (string-join prune-patterns " -o "))
+                        (string-join excludes " ")
+                        (if search-for-path "-ipath" "-iname")
+                        (if (string-match-p "\\*" pattern)
+                            (replace-regexp-in-string "\\*" "\\\\*" pattern)
+                          (concat "\\*" pattern "\\*"))))
+           (file-list (split-string (shell-command-to-string cmd)))
+           buf)
+      (unless (and (boundp 'util/ffip-debug) util/ffip-debug)
+        (setq util/ffip-debug-cmd cmd))
+      (cond ((and ci file-list)
+             (setq buf (dired-internal-noselect
+                        (mapcar (lambda (x) (f-join root x)) file-list)))
+             (pop-to-buffer buf)
+             (with-current-buffer buf
+               (rename-buffer (format "*find* \"%s\"" pattern) t)))
+            ((and (not ci) file-list)
+             file-list)
+            ((and ci (not file-list))
+             (message "No files found matching pattern %s" pattern))
+            (t nil)))))
+
+(defun util/read-if-not-nil (sym val &optional prompt)
+  "Read from minibuffer if SYM is nil with default value VAL."
+  (format "%s" (or sym
+                   (read-from-minibuffer (format (or prompt "Enter the file pattern (default %s): ") val)
+                                         nil nil t nil val))))
+
+(defun util/ffip-grep-pattern (&optional file-pattern grep-pattern)
+  "Grep for GREP-PATTERN in files returned by `util/ffip-search'.
+The files are matched with FILE-PATTERN."
+  (interactive "p")
+  (let* ((phrase (thing-at-point 'symbol t))
+         (file (concat "*." (car (last (split-string (buffer-file-name) "\\.")))))
+         (file-pattern (util/read-if-not-nil file-pattern file))
+         (grep-pattern (util/read-if-not-nil grep-pattern phrase))
+         (files (util/ffip-search file-pattern))
+         grep-save-buffers)
+    (if files
+        (grep (string-join (-concat `("grep --color -nH --null -i -E" ,grep-pattern) files) " "))
+      (message "No files found matching pattern %s" grep-pattern))))
+
+(defun util/ffip-grep-default ()
+  "Grep for PATTERN in files of current mode."
+  (interactive)
+  (util/ffip-grep-pattern (concat "*." (car (last (split-string (buffer-file-name) "\\."))))))
+
+(defalias 'util/ffip-gg 'util/ffip-grep-git-files)
+
+(defun util/ffip-grep-git-files (&optional pattern)
+  "Grep for PATTERN in git staged files."
+  (interactive)
+  (let* ((root (ffip-project-root))
+         (phrase (thing-at-point 'symbol t))
+         (files (-filter (lambda (x) (not (string-empty-p x)))
+                         (split-string (shell-command-to-string (format "cd %s && git ls-files" root)))))
+         (pattern (util/read-if-not-nil pattern phrase "Grep in git files: (default %s): "))
+         (default-directory root)
+         grep-save-buffers)
+    (if files
+        (grep (string-join (-concat `("grep --color -nH --null -i -E" ,pattern) files) " "))
+      (message "No files found matching pattern %s" pattern))))
+
+(defun util/rgrep-default-search (regexp)
   "`rgrep' for REGEXP in current directory for files with current extension.
-If optional EXCLUDE-DIRS is non-nil, add them to `grep' exclude
-path.  With `current-prefix-arg', read EXCLUDE-DIRS from the
-minibuffer by the user.  The REGEXP pattern is asked on the
-prompt by default."
+The REGEXP pattern is asked on the prompt by default.
+
+See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
   (interactive (list (let ((phrase (thing-at-point 'symbol t)))
                        (read-from-minibuffer (format "Regexp (default %s): " phrase)
                                              nil nil t nil phrase))))
-  ;; (when (and current-prefix-arg (not exclude-dirs))
-  ;;   (setq exclude-dirs (split-string
-  ;;                       (read-from-minibuffer "Exclude additional dirs: ") nil t " ")))
   (unless (stringp regexp)
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
@@ -723,11 +981,7 @@ prompt by default."
          (files (concat "*." (car (last (split-string fname "\\."))))))
     (eval-after-load "grep"
       '(grep-compute-defaults))
-    (rgrep regexp files dir)
-    ;; (if current-prefix-arg
-    ;;     (grep (list regexp files))
-    ;;   (rgrep regexp files dir))
-    ))
+    (rgrep regexp files dir)))
 
 ;; FIXME: What does it do?
 (defun util/clean-generated-org-buf ()
@@ -898,15 +1152,15 @@ symbol, prompt the user for the symbol."
                      elements "/")))
 
 (defun util/max-ind (seq)
-  (let* ((my/max-val 0) (my/ind -1) (my/max 0))
+  (let* ((max-val 0) (ind -1) (max 0))
     (cl-loop for x in seq
           do
           (progn
-            (setq my/ind (+ 1 my/ind))
-            (if x (if (> x my/max-val)
-                      (progn (setq my/max-val x)
-                             (setq my/max my/ind))))))
-    my/max))
+            (setq ind (+ 1 ind))
+            (if x (if (> x max-val)
+                      (progn (setq max-val x)
+                             (setq max ind))))))
+    max))
 
 (defun util/trim (str)
   "Trims the string STR and replace multiple spaces with a single one."
@@ -1077,31 +1331,6 @@ can be selected and the braces are ignored and the amount is summed up."
 ;;             (sphinx-doc-indent-doc indent)
 ;;             (search-forward "\"\"\""))))))
 
-(defmacro util/with-check-mode (mode msg-prefix &rest body)
-  "Execute BODY only if `major-mode' equals MODE.
-Otherwise message not in MODE.  MSG-PREFIX can be used to indicate
-the package from which the macro is invoked.  If MSG-PREFIX is
-nil, then nothing is prefixed to the message."
-  `(if (eq major-mode ,mode)
-       (progn ,@body)
-     (message "%sNot in %s"
-              (if ,msg-prefix (concat ,msg-prefix " ") "")
-              ,mode)))
-
-(defmacro util/measure-time (&rest body)
-  "Measure the time it takes to evaluate BODY."
-  `(let ((time (current-time)))
-     ,@body
-     (message "%.06f" (float-time (time-since time)))))
-
-(defmacro util/measure-time-n (n &rest body)
-  "Measure the time it takes to evaluate BODY.
-Sum over N iterations."
-  `(let ((time (current-time)))
-     (dotimes (i ,n)
-       ,@body)
-     (message "Mean runtime %.06f seconds over %s runs"
-              (/ (float-time (time-since time)) ,n) ,n)))
 
 (defun util/fast-files-or-dirs (path f-or-d &optional recurse include-hidden)
   "Get all files or dirs or both or everything, recursively from PATH.
@@ -1269,24 +1498,57 @@ is not used."
                   (push (cons bol end) regions)))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
+(defun util/org-heading-and-body-bounds ()
+  "Return bounds of text body if present in org subtree.
+
+Return value is a triple of '(beg end has-body) where beg is the
+point after metadata, end is the point at end of subtree and
+has-body indicates if any text is present."
+  (let* ((beg (progn (unless (org-at-heading-p)
+                       (outline-back-to-heading))
+                     (point)))
+         (end (progn
+                (outline-next-heading)
+                (point)))
+         (has-body (not (string-empty-p
+                         (string-trim
+                          (buffer-substring-no-properties beg end))))))
+    (list beg end has-body)))
+
 ;; FIXME: This leaves the subtree in "show" mode. Should save subtree state
 (defun util/org-narrow-to-heading-and-body ()
   "Narrow to the current heading and the body.
 Unlike `org-narrow-to-subtree' any headings which are children of
 the current heading are excluded."
-  (let (pmin pmax)
-    (org-narrow-to-subtree)
-    (save-excursion
-      (goto-char (point-min))
-      (org-show-subtree)
-      (beginning-of-line)
-      (if (eq (point-min) (point))
-          (setq pmin (point))
-        (org-previous-visible-heading 1)
-        (setq pmin (point)))
-      (org-next-visible-heading 1)
-      (setq pmax (point))
-      (narrow-to-region pmin pmax))))
+  (pcase-let ((`(,beg ,end ,has-body) (util/org-heading-and-body-bounds)))
+    )
+  ;; (let (pmin pmax)
+  ;;   (org-narrow-to-subtree)
+  ;;   (save-excursion
+  ;;     (goto-char (point-min))
+  ;;     (org-show-subtree)
+  ;;     (beginning-of-line)
+  ;;     (if (eq (point-min) (point))
+  ;;         (setq pmin (point))
+  ;;       (org-previous-visible-heading 1)
+  ;;       (setq pmin (point)))
+  ;;     (org-next-visible-heading 1)
+  ;;     (setq pmax (point))
+  ;;     (narrow-to-region pmin pmax)))
+  )
+
+(defun util/org-get-subtree-with-body-for-heading-matching-re (str)
+  (let ((case-fold-search t)
+        match)
+    (goto-char (point-min))
+    (and (re-search-forward (concat "^\\*+.+" (regexp-quote str)) nil t)
+         (goto-char (match-beginning 0))
+         (setq match (match-beginning 0)))
+    (unless match
+      (debug))
+    (when match
+      (util/org-narrow-to-heading-and-body)
+      (buffer-string))))
 
 (defun util/org-kill-new-or-append-subtree ()
   "Kill or append to last kill current subtree.
@@ -1294,39 +1556,40 @@ the current heading are excluded."
 append to last kill otherwise.  With non-nil `current-prefix-arg'
 remove the subtree from the buffer also."
   (interactive)
-  (save-restriction
-    (org-narrow-to-subtree)
-    (let ((str (buffer-string))
-          (beg (point-min))
-          (end (point-max))
-          new)
-      (if (string-prefix-p "*" (-first-item (split-string (car kill-ring) "\n")))
-          (kill-append (concat "\n" str) nil)
-        (kill-new str)
-        (setq new t))
-      (when current-prefix-arg
-        (delete-region beg end))
-      (message (if new "Killed %s " "Appended %s to last kill")
-               (-first-item (split-string str "\n")))))
-  (delete-blank-lines))
+  (util/with-org-mode
+   (save-restriction
+     (org-narrow-to-subtree)
+     (let ((str (buffer-string))
+           (beg (point-min))
+           (end (point-max))
+           new)
+       (if (string-prefix-p "*" (-first-item (split-string (car kill-ring) "\n")))
+           (kill-append (concat "\n" str) nil)
+         (kill-new str)
+         (setq new t))
+       (when current-prefix-arg
+         (delete-region beg end))
+       (message (if new "Killed %s " "Appended %s to last kill")
+                (-first-item (split-string str "\n")))))
+   (delete-blank-lines)))
 
 (defun util/org-remove-subtrees-matching-re (re &optional recurse)
   "Remove subtrees from an `org-mode' buffer whose headlines match regexp RE.
 Remove only at one depth below the current subtree.  The buffer
 to operate on must be an org buffer.  Optional RECURSE is not
 used as of now."
-  (when (eq major-mode 'org-mode)
-    (goto-char (point-min))
-    (let (regions)
-      (org-element-map (org-element-parse-buffer) 'headline
-        (lambda (el)
-          (let ((hbeg (plist-get (cadr el) :contents-begin))
-                (hend (plist-get (cadr el) :contents-end)))
-            (when (string-match-p re (plist-get (cadr el) :raw-value))
-              (when (and hbeg hend)
-                (push (cons hbeg hend) regions))))))
-      (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
+  (let (regions)
+    (org-element-map (org-element-parse-buffer) 'headline
+      (lambda (el)
+        (let ((hbeg (plist-get (cadr el) :contents-begin))
+              (hend (plist-get (cadr el) :contents-end)))
+          (when (string-match-p re (plist-get (cadr el) :raw-value))
+            (when (and hbeg hend)
+              (push (cons hbeg hend) regions))))))
+    (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions)))
 
+;; TODO: This is not used and instead there are only references to
+;;       `util/org-multi-collect-headings-cache'
 (defvar util/org-headings-cache nil
   "Cache of headings in designated buffers.")
 (defvar util/org-heading-props-filter-p nil
@@ -1373,7 +1636,8 @@ predicate."
          util/org-multi-collect-buffers)))
 
 ;; TODO: Add to cache as current buffer updates.
-(defun util/org-multi-collect-headings (predicate)
+;; TODO: Filter by bufname
+(defun util/org-multi-collect-headings (predicate &optional bufname)
   "Return headings in an org buffer satisfying unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
 predicate."
@@ -1429,32 +1693,38 @@ Stop words list is `util/stop-words'."
                  (split-string string))
     (string-join (reverse words) " ")))
 
-(defun util/org-get-text-links (link-re narrow)
+(defun util/org-get-text-links (link-re narrow &optional file-prefix)
   "Get all the links matching LINK-RE in an org buffer.
-When NARROW is non-nil, first narrow to subtree."
+When NARROW is non-nil, first narrow to subtree.  When optional
+FILE-PREFIX is non-nil, insert the file path for fuzzy links for
+current buffer so that it becomes an absolute link."
   (let (temp)
     (save-restriction
       (save-excursion
         (when narrow
           (org-narrow-to-subtree))
         (goto-char (point-min))
-        ;; (when (outline-next-heading)
-        ;;   (narrow-to-region (point-min) (point)))
-        ;; (goto-char (point-min))
         (while (re-search-forward link-re nil t nil)
           (when (and (match-string 1) (match-string 2))
-            (push (list (substring-no-properties (match-string 2))
-                        (substring-no-properties (match-string 1)))
-                  temp)))))
+            (let ((elem (list (substring-no-properties (match-string 2))
+                              (if file-prefix
+                                  (let ((sub (substring-no-properties (match-string 1))))
+                                    (if (and (string-match-p "^\\*" sub)
+                                             (not (string-match-p "^file" sub)))
+                                        (concat "file:" (buffer-file-name) "::" sub)
+                                      sub))
+                                (substring-no-properties (match-string 1))))))
+              (push elem temp))))))
     temp))
 
-(defvar util/org-insert-link-to-heading-prefix-behaviour '(((4) . subtree) ((16) . buffer))
-  ;; '(subtree buffer research-files)
+;; Was initially '(subtree buffer research-files)
+(defvar util/org-insert-link-to-heading-prefix-behaviour '(((4) . buffer) ((16) . subtree))
   "Behaviour of `current-prefix-arg' for `util/org-insert-link-to-heading'.
+
 A list of symbols `subtree' `research-files' `buffer'.  The first
 element in the list corresponds to single universal prefix
-argument `C-u'.  The second element to two universal
-prefix arguments and the last one to no argument.")
+argument `C-u'.  The second element to two universal prefix
+arguments and the last one to no argument.")
 
 (defun util/org-heading-first-subheading ()
   "Return the point of first subheading if heading has subheadings.
@@ -1464,8 +1734,10 @@ If no subheadings exist, return nil."
       (org-narrow-to-subtree)
       (outline-next-heading))))
 
-(defun util/org-get-tree-prop (prop)
-  "Return property PROP if it exists in headings' parents."
+(defun util/org-get-tree-prop (prop &optional heading)
+  "Return point up the tree checking for property PROP.
+PROP is check at heading or its current parent recursively.  With
+non-nil HEADING, return heading at the point instead of point."
   (save-excursion
     (let (is-doc-root no-doc-root)
       (while (and (not is-doc-root) (not no-doc-root))
@@ -1473,7 +1745,9 @@ If no subheadings exist, return nil."
             (outline-up-heading 1 t)
           (error (setq no-doc-root t)))
         (setq is-doc-root (org-entry-get (point) prop)))
-      (and is-doc-root (point)))))
+      (and is-doc-root (if heading
+                           (substring-no-properties (org-get-heading t t t t))
+                         (point))))))
 
 (defun util/org-heading-matching-re (re &optional subtree)
   "Goto first heading matching regexp RE.
@@ -1490,7 +1764,7 @@ If optional SUBTREE is non-nil, search only in current subtree."
             (setq ref (point))))
         ref))))
 
-(defun util/org-insert-link-to-heading (&optional clip-func citation)
+(defun util/org-insert-link-to-heading (&optional clip-func citation refs)
   "Insert a link to selected heading.
 Description of the link is determined by optional CLIP-FUNC.
 If not given, it defaults to `identity'.
@@ -1500,19 +1774,21 @@ only the current buffer and citations within the current
 `doc-root' are searched. A `doc-root' is an org subtree with the
 non-nil property DOC_ROOT.
 
+When optional REFS is non-nil and an immediate sub-heading of
+`doc-root' named \"References\" exists, then those are also
+offered as options.
+
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
 
 See also, `util/org-collect-headings' and
 `util/org-multi-collect-headings'."
   (interactive)
-  (let* ((read-from (or (and citation 'buffer)
-                        (a-get util/org-insert-link-to-heading-prefix-behaviour
+  (let* ((read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
                         'research-files))
          (clip-func (or clip-func #'identity))
-         (text-link-re (rx "[" "[" (group (seq (or (regexp "file.+::\\*") "*" "http") (+? any))) "]"
-                           "[" (group (+? any)) "]" "]"))
+         (text-link-re util/org-text-link-re)
          (headings (pcase read-from
                      ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
                      ('research-files (apply #'-concat
@@ -1522,7 +1798,8 @@ See also, `util/org-collect-headings' and
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
                                  (util/org-collect-headings #'util/org-default-heading-filter-p)))))
-         (doc-root (when citation (util/org-get-tree-prop "DOC_ROOT")))
+         (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
+                                      (save-excursion (outline-back-to-heading (point))))))
          ;; org links in current subtree text
          (subtree-text-links (when citation
                                (let ((temp (util/org-get-text-links text-link-re t)))
@@ -1545,19 +1822,20 @@ See also, `util/org-collect-headings' and
                                               (-uniq temp)))))))
          ;; Get links from subtree in references section of doc root if it
          ;; exists
-         (references (save-excursion
-                       (if doc-root
-                           (goto-char doc-root)
-                         (outline-back-to-heading))
-                       (let* ((refs (util/org-heading-matching-re "^references$" t))
-                              (sub (when refs
-                                     (goto-char refs)
-                                     (util/org-heading-first-subheading))))
-                         (and refs sub
-                              (save-restriction
-                                (org-narrow-to-subtree)
-                                (narrow-to-region sub (point-max))
-                                (util/org-collect-headings #'identity))))))
+         (references (when refs
+                       (save-excursion
+                         (if doc-root
+                             (goto-char doc-root)
+                           (outline-back-to-heading))
+                         (let* ((refs (util/org-heading-matching-re "^references$" t))
+                                (sub (when refs
+                                       (goto-char refs)
+                                       (util/org-heading-first-subheading))))
+                           (and refs sub
+                                (save-restriction
+                                  (org-narrow-to-subtree)
+                                  (narrow-to-region sub (point-max))
+                                  (util/org-collect-headings #'identity)))))))
          ;; `subtree-text-links' at the beginning of selections
          ;; then `doc-root-text-links'
          ;; then `references'
@@ -1606,36 +1884,170 @@ the link is is first two words of the heading.  The headings are
 filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched."
   (interactive)
-  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t))
+  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t))
 
+(defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
+  "Subroutine for `util/org-collect-duplicate-headings'.
+See `util/org-collect-duplicate-headings' for details.  `defun'
+doesn't work when passing references to headings and dups for
+some reason."
+  `(let ((item (cons heading pos))
+         (check (if ignore-case (downcase heading) heading)))
+     (if predicate
+         (when (funcall predicate heading)
+           (push item headings)
+           (push check strings)
+           (when (> (cl-count check strings :test test) 1)
+             (let* ((old-pos (cl-position check (reverse strings) :test test))
+                    (old-heading (nth old-pos (reverse headings))))
+               (unless (cl-member old-heading dups :test test)
+                 (push old-heading dups))
+               (push item dups))))
+       (push item headings)
+       (push check strings)
+       (when (> (cl-count check strings :test test) 1)
+         (let* ((old-pos (cl-position check (reverse strings) :test test))
+                (old-heading (nth old-pos (reverse headings))))
+           (unless (cl-member old-heading dups :test test)
+             (push old-heading dups))
+           (push item dups))))))
+
+(defvar util/org-helm-use-headings-cache t
+  "Whether to use headings from `util/org-headings-cache'.
+Cache is returned from `util/org-multi-collect-headings' and is
+auto updated if the file has changed on disk.  See
+`util/org-multi-collect-headings'.")
+
+(defvar util/org-duplicate-headings nil
+  "Global variable to easily access duplicate headings found in buffer.")
+
+;; TODO: match headings also which differ in at most 2 words
+;; TODO: match headings in which one is substring of other
 (defun util/org-collect-duplicate-headings (&optional predicate ignore-case test)
   "Collect duplicate headings in an org buffer.
 With optional boolean function PREDICATE, collect those which
-only satisfy it.  With optional non-nil IGNORE-CASE, ignore case
-while searching.  Optional TEST is which test function to use for
-`cl-count'.  Defaults to `equal'."
-  (let (headings dups)
-    (save-excursion
-      (goto-char (point-max))
-      (while (re-search-backward org-complex-heading-regexp nil t)
-        (let* ((el (org-element-at-point))
-               (heading (org-element-property :title el))
-               (pos (org-element-property :begin el))
-               (test (or test 'equal)))
-          (if predicate
-              (when (funcall predicate heading)
-                (push (cons heading pos) headings))
-            (push (cons heading pos) headings))))
-      (dolist (heading headings)
-        (when (> (cl-count
-                  ;; (car heading)
-                  ;; (mapcar #'car headings)
-                  (if ignore-case (downcase (car heading)) (car heading))
-                  (mapcar (lambda (x) (if ignore-case (downcase (car x)) (car x))) headings)
-                  :test test)
-                 1)
-          (push heading dups)))
-      (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))))
+only satisfy it.
+
+With optional non-nil IGNORE-CASE, ignore case while searching.
+Optional TEST is which test function to use for `cl-count'.
+Defaults to `equal'."
+  (let* ((test (or test 'equal))
+         (in-cache (when util/org-helm-use-headings-cache
+                     (member (buffer-name) (a-keys (util/org-multi-collect-headings
+                                                    #'util/org-default-heading-filter-p
+                                                    (buffer-name))))))
+         headings dups strings)
+    (if in-cache
+        (let ((cache (a-get util/org-multi-collect-headings-cache (buffer-name))))
+          (dolist (elem cache)
+            (let ((heading (car elem))
+                  (pos (-last-item elem)))
+              (util/org-collect-duplicate-subr heading pos headings dups strings
+                                               predicate ignore-case test))))
+      (save-excursion
+        (goto-char (point-max))
+        (while (re-search-backward org-complex-heading-regexp nil t)
+          (let* ((el (org-element-at-point))
+                 (heading (org-element-property :title el))
+                 (pos (org-element-property :begin el)))
+            (util/org-collect-duplicate-subr heading pos headings dups strings
+                                             predicate ignore-case test)))))
+    (setq util/org-duplicate-headings
+          (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))
+    util/org-duplicate-headings))
+
+(defun util/org-helm-show (char)
+  (interactive)
+  (goto-char char)
+  (recenter-top-bottom)
+  (org-show-entry)
+  (save-excursion
+    (let ((bounds (org-get-property-block)))
+      (when bounds
+        ;; HACK (car bounds) gives node-property which org complains is not a drawer
+        (goto-char (- (car bounds) 1))
+        (org-hide-drawer-toggle)))))
+
+(defun util/org-helm-delete (&rest args)
+  "Cut the subtree at point in current helm buffer."
+  (interactive)
+  (with-helm-current-buffer
+    (if (> (util/org-count-subtree-children) 0)
+        (message "Cannot delete node with children")
+      (org-copy-subtree nil t))))
+
+(defun util/org-helm-show-outline (&rest args)
+  "Print the outline path for heading at point in helm"
+  (interactive)
+  (with-helm-current-buffer
+    (message (org-format-outline-path (org-get-outline-path)))))
+
+;; TODO: If they're in the same subtree, just delete one of them
+;; TODO: Subtract the number of characters from each POS after POINT from DUPS
+;; TODO: Don't delete self.
+(defun util/org-helm-replace-heading-as-list-item (&rest args)
+  "Delete a duplicate org heading at point and insert a link to original.
+Inserts a link to the first org heading in
+`util/org-duplicate-headings'.  `util/org-duplicate-headings' is
+set and returned by `util/org-collect-duplicate-headings'.  See
+that function for implementation details."
+  (interactive "P")
+  (with-helm-current-buffer
+    (let* ((case-fold-search t)
+           (heading (org-get-heading t t t t))
+           (first (-first-item
+                   ;; NOTE: Actually the duplicates depend on the predicate
+                   ;;       While here I'm just doing a `string-match-p'
+                   (-filter (lambda (x) (string-match-p (car x) heading))
+                            util/org-duplicate-headings)))
+           (children (util/org-count-subtree-children)))
+      (cond ((> children 0)
+             (message "Cannot delete node with children"))
+            ((eq (point) (cdr first))
+             (message "Cannot delete first heading"))
+            (t
+             (org-copy-subtree nil t)
+             (outline-up-heading 1 t)
+             (org-end-of-meta-data)
+             (open-line 1)
+             (org-indent-line)
+             (let* ((instr (format "- [[%s::*%s][%s]]" (buffer-file-name) (car first) (car first)))
+                    (inslen (1+ (length instr)))
+                    (pt (point))
+                    (offset (+ (length org-subtree-clip) inslen)))
+               (insert instr)
+               ;; Call helm again with different sources
+               ;; TODO: This is broken:
+               ;;       1. The positions post update are not correct
+               ;;       2. Need to update sources correctly
+               ;; (helm :sources (helm-build-sync-source "Duplicate headings"
+               ;;                  :candidates (lambda ()
+               ;;                                (with-helm-current-buffer
+               ;;                                  (-keep (lambda (x)
+               ;;                                           (when (not (string-match-p (car x) heading))
+               ;;                                             (if (> (cdr x) pt)
+               ;;                                                 (cons (car x) (- (cdr x) offset))
+               ;;                                               x)))
+               ;;                                         util/org-duplicate-headings)))
+               ;;                  :follow 1
+               ;;                  :action 'util/org-helm-show-dup-actions
+               ;;                  :keymap util/helm-org-map)))
+               ))))))
+
+(defvar util/org-helm-show-dup-actions
+  (helm-make-actions
+   "Show Entry" 'util/org-helm-show
+   "Delete Entry" 'util/org-helm-delete
+   "Show Entry Path" 'util/org-helm-show-outline
+   "Replace with link" 'util/org-helm-replace-heading-as-list-item))
+
+(defvar util/helm-org-map
+  (let ((new-map (copy-keymap helm-map)))
+    (define-key new-map (kbd "C-k") 'util/org-helm-delete)
+    (define-key new-map (kbd "C-l") 'util/org-helm-show-outline)
+    (define-key new-map (kbd "C-R") 'util/org-helm-replace-heading-as-list-item)
+    new-map)
+  "Keymap for `helm-org-rifle'.")
 
 (defun util/org-helm-show-duplicate-headings (&optional pred ignore-case)
   "Show duplicate headings in an org buffer with `helm'.
@@ -1643,27 +2055,23 @@ With optional predicate PRED, show only those which satisfy the
 predicate.  With optional non-nil IGNORE-CASE, ignore case while
 searching."
   (interactive)
-  (helm :sources (helm-build-sync-source "Duplicate headings"
-                   :candidates (lambda ()
-                                 (with-helm-current-buffer
-                                   (util/org-collect-duplicate-headings pred ignore-case)))
-                   :follow 1
-                   :action (lambda (char)
-                             (goto-char char)
-                             (org-show-entry)
-                             (save-excursion
-                               (let ((bounds (org-get-property-block)))
-                                 (when bounds
-                                   ;; HACK (car bounds) gives node-property which org complains is not a drawer
-                                   (goto-char (- (car bounds) 1))
-                                   (org-hide-drawer-toggle))))))))
+  (util/with-org-mode
+   (helm :sources (helm-build-sync-source "Duplicate headings"
+                    :candidates (lambda ()
+                                  (with-helm-current-buffer
+                                    (util/org-collect-duplicate-headings pred ignore-case)))
+                    :follow 1
+                    :action 'util/org-helm-show-dup-actions
+                    :keymap util/helm-org-map))))
 
-(defun util/insert-heading-from-url (&optional url)
+(defun util/insert-heading-from-url ()
   "Fetch the title from an optional URL.
-URL is copied from clipboard if not given."
+URL is copied from clipboard if not given.
+
+Requires python, and python packages \"bs4\", \"requests\" and
+\"brotli\" to be installed in the python env."
   (interactive)
-  (util/with-check-mode
-   'org-mode nil
+  (util/with-org-mode
    (org-insert-heading-respect-content)
    (newline)
    (org-indent-line)
@@ -1671,22 +2079,24 @@ URL is copied from clipboard if not given."
    (yank)
    (org-edit-headline
     (string-trim (shell-command-to-string
-                  (format "/home/joe/lib/ref-man/env/bin/python -c 'import requests; from bs4 import BeautifulSoup; headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate, br\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}; print(BeautifulSoup(requests.get(\"%s\", headers=headers).content).title.text)'"
+                  (format "%s -c 'import requests; from bs4 import BeautifulSoup; headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate, br\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}; print(BeautifulSoup(requests.get(\"%s\", headers=headers).content).title.text)'"
+                          util/insert-heading-python-executable
                           (org-element-property :raw-link (org-element-context))))))))
 
-(defun util/run-python-file-from-str (str &optional python-path args)
-  "Write the given python string STR to a temp file and run with python.
-If optional PYTHON-PATH is given, that python executable is used
-to run the script.  Optional ARGS is an list of arguments to
-format the string."
-  (let ((formatted-string (apply #'format (cons str args)))
-        (python (or python-path (executable-find "python")))
-        (tfile (make-temp-file "util-py-")))
-    (with-temp-file tfile
-      (insert formatted-string))
-    ;; (make-process)
-    ;; write temp file and run process with python
-    ))
+;; TODO
+;; (defun util/run-python-file-from-str (str &optional python-path args)
+;;   "Write the given python string STR to a temp file and run with python.
+;; If optional PYTHON-PATH is given, that python executable is used
+;; to run the script.  Optional ARGS is an list of arguments to
+;; format the string."
+;;   (let ((formatted-string (apply #'format (cons str args)))
+;;         (python (or python-path (executable-find "python")))
+;;         (tfile (make-temp-file "util-py-")))
+;;     (with-temp-file tfile
+;;       (insert formatted-string))
+;;     ;; (make-process)
+;;     ;; write temp file and run process with python
+;;     ))
 
 (provide 'util)
 
