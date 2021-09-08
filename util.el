@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Tuesday 31 August 2021 10:14:00 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.0
+;; Version:     0.3.1
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -101,6 +101,8 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
+(defvar util/file-link-re (rx "[" "[" (opt "file:") (group (+? any)) "]"
+                              (opt (seq "[" (group (+? any)) "]")) "]"))
 (defvar util/org-file-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? any))) "]"
                                   "[" (group (+? any)) "]" "]"))
 (defvar util/org-text-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*" "http") (+? any))) "]"
@@ -586,11 +588,20 @@ suffices.  This function does just that.  Adapated from
     ;; return t to indicate that the search is done.
     t)))
 
+(defvar util/org-execute-org-heading-search-prefix-arg-behaviour nil
+  "Behaviour of \\[universal-argument] in `util/org-execute-org-heading-search-*' functions.
+For now only 'pdf is used and opens the PDF_FILE from properties.")
+
 ;; TODO: In case there are multiple matches, list all
-(defun util/org-execute-org-heading-max-match-search (str)
-  "Return maximum length match for minimum three words of STR of org heading.
-If heading contains less than 3 words, then an exact match is
-searched."
+(defun util/org-execute-customid-or-max-heading-match-search (str)
+  "Return match for either custom-id or org heading.
+If the link is for a custom-id then search for that else if it's
+a fuzzy link then search for a match for minimum three words of
+STR of org heading.  If heading contains less than 3 words, then
+an exact match is searched.
+
+After match, with non-nil \\[universal-argument] execute function according to
+`util/org-execute-org-heading-search-prefix-arg-behaviour'."
   (when (derived-mode-p 'org-mode)
     (let* ((buf (current-buffer))
            (case-fold-search t)
@@ -598,6 +609,10 @@ searched."
            (todo-comment-re (if (derived-mode-p 'org-mode)
                                 (rx (group (regexp org-todo-regexp)))
                               (rx (or (regexp org-comment-string)))))
+           (custom-id-re (when (pcase (string-match-p "^#[a-zA-Z0-9_-]+$" str)
+                                 (0 t)
+                                 (_ nil))
+                           (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str))))
            (title (if (< (length words) 3)
                       (string-join words " ")
                     (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".*")))
@@ -605,41 +620,45 @@ searched."
                        (opt (seq (regexp todo-comment-re) " "))
                        (group (regexp title))
                        eol))
-           ;; (title-re
-           ;;  (format (rx bol (+ "*") " "
-           ;;              (opt (eval `(group
-           ;;                           ,(nconc (if (eq major-mode 'org-mode)
-           ;;                                       (cadr (xr org-todo-regexp))
-           ;;                                     '(or))
-           ;;                                   '("COMMENT"))))
-           ;;                   " ")
-           ;;              (group "%s")
-           ;;              eol)
-           ;;          (if (< (length words) 3)
-           ;;              (string-join words " ")
-           ;;            (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".+"))))
            (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
            (comment-re org-comment-regexp)
            matches)
       (with-current-buffer buf
-        ;; (switch-to-buffer buf)
-        (goto-char (point-min))
-        (while (re-search-forward title-re nil t)
-          (push (list (length (-intersection words
-                                             (split-string
-                                              (replace-regexp-in-string
-                                               cookie-re ""
-                                               (replace-regexp-in-string
-                                                comment-re "" (org-get-heading t t t t))))))
-                      (point))
-                matches))
-        (when matches
-          (goto-char (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches)))
-          (beginning-of-line)
-          ;; (recenter 0)
-          ;; CHECK: Why was I doing this `mapcar'?
-          ;; (mapcar #'cadr matches)
-          ))
+        (save-excursion
+          (goto-char (point-min))
+          (if custom-id-re
+              (progn (re-search-forward custom-id-re)
+                     (push (list (length (-intersection words
+                                                        (split-string
+                                                         (replace-regexp-in-string
+                                                          cookie-re ""
+                                                          (replace-regexp-in-string
+                                                           comment-re "" (org-get-heading t t t t))))))
+                                 (progn (outline-back-to-heading) (point))
+                                 (org-entry-get (point) "PDF_FILE"))
+                           matches))
+            (while (re-search-forward title-re nil t)
+              (push (list (length (-intersection words
+                                                 (split-string
+                                                  (replace-regexp-in-string
+                                                   cookie-re ""
+                                                   (replace-regexp-in-string
+                                                    comment-re "" (org-get-heading t t t t))))))
+                          (point)
+                          (org-entry-get (point) "PDF_FILE"))
+                    matches))))
+        (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
+               (pdf-prop (org-entry-get pt "PDF_FILE"))
+               (pdf-file (when (and pdf-prop (string-match util/file-link-re pdf-prop))
+                           (match-string 1 pdf-prop))))
+          (if (and current-prefix-arg
+                   (eq util/org-execute-org-heading-search-prefix-arg-behaviour 'pdf)
+                   pdf-file
+                   (f-exists? pdf-file))
+              (find-file pdf-file)
+            ;; NOTE: Only go there if pdf isn't to be opened
+            (goto-char pt)
+            (beginning-of-line))))
       matches)))
 
 (defun util/try-copy-help-buffer-link ()
@@ -1588,10 +1607,15 @@ used as of now."
               (push (cons hbeg hend) regions))))))
     (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions)))
 
+(defun util/check-fix-custom-ids ()
+  "Check for duplicate custom ids in an org buffer and fix them."
+  (debug))
+
 ;; TODO: This is not used and instead there are only references to
 ;;       `util/org-multi-collect-headings-cache'
 (defvar util/org-headings-cache nil
   "Cache of headings in designated buffers.")
+;; TODO: Should also collect CUSTOM_ID
 (defvar util/org-heading-props-filter-p nil
   "Additional property filter to apply to headings while collecting them.
 Used by `util/org-collect-headings'")
@@ -1637,7 +1661,7 @@ predicate."
 
 ;; TODO: Add to cache as current buffer updates.
 ;; TODO: Filter by bufname
-(defun util/org-multi-collect-headings (predicate &optional bufname)
+(defun util/org-multi-collect-headings (predicate &optional bufname no-refresh)
   "Return headings in an org buffer satisfying unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
 predicate."
@@ -1651,27 +1675,30 @@ predicate."
                                         (file-attribute-modification-time
                                          (file-attributes (buffer-file-name buf)))))
                     util/org-multi-collect-buffers))
-         (bufnames (mapcar #'buffer-name util/org-multi-collect-buffers))
+         (bufnames (if bufname
+                       (list bufname)
+                     (mapcar #'buffer-name util/org-multi-collect-buffers)))
          (headings (mapcar (lambda (bufname)
                              (cons bufname
                                    (progn
                                      ;;  buf is missing from cache
-                                     (when (or (not (a-get util/org-multi-collect-headings-cache bufname))
-                                               ;;  cached-buf-modtime < current-buf-modtime
-                                               (time-less-p (a-get util/org-multi-collect-modtimes
-                                                                   bufname)
-                                                            (a-get modtimes bufname)))
-                                       (setq util/org-multi-collect-headings-cache
-                                             ;; update cache
-                                             (a-assoc util/org-multi-collect-headings-cache
-                                                      bufname
-                                                      (with-current-buffer bufname
-                                                        (util/org-collect-headings predicate)))
-                                             util/org-multi-collect-modtimes
-                                             ;; update modtimes
-                                             (a-assoc util/org-multi-collect-modtimes
-                                                      bufname
-                                                      (a-get modtimes bufname))))
+                                     (unless no-refresh
+                                       (when (or (not (a-get util/org-multi-collect-headings-cache bufname))
+                                                 ;;  cached-buf-modtime < current-buf-modtime
+                                                 (time-less-p (a-get util/org-multi-collect-modtimes
+                                                                     bufname)
+                                                              (a-get modtimes bufname)))
+                                         (setq util/org-multi-collect-headings-cache
+                                               ;; update cache
+                                               (a-assoc util/org-multi-collect-headings-cache
+                                                        bufname
+                                                        (with-current-buffer bufname
+                                                          (util/org-collect-headings predicate)))
+                                               util/org-multi-collect-modtimes
+                                               ;; update modtimes
+                                               (a-assoc util/org-multi-collect-modtimes
+                                                        bufname
+                                                        (a-get modtimes bufname)))))
                                      (a-get util/org-multi-collect-headings-cache bufname))))
                            bufnames)))
     headings))
@@ -1739,15 +1766,20 @@ If no subheadings exist, return nil."
 PROP is check at heading or its current parent recursively.  With
 non-nil HEADING, return heading at the point instead of point."
   (save-excursion
-    (let (is-doc-root no-doc-root)
-      (while (and (not is-doc-root) (not no-doc-root))
-        (condition-case nil
-            (outline-up-heading 1 t)
-          (error (setq no-doc-root t)))
-        (setq is-doc-root (org-entry-get (point) prop)))
-      (and is-doc-root (if heading
-                           (substring-no-properties (org-get-heading t t t t))
-                         (point))))))
+    (outline-back-to-heading)
+    (if (org-entry-get (point) prop)
+        (if heading
+            (substring-no-properties (org-get-heading t t t t))
+          (point))
+      (let (is-doc-root no-doc-root)
+        (while (and (not is-doc-root) (not no-doc-root))
+          (condition-case nil
+              (outline-up-heading 1 t)
+            (error (setq no-doc-root t)))
+          (setq is-doc-root (org-entry-get (point) prop)))
+        (and is-doc-root (if heading
+                             (substring-no-properties (org-get-heading t t t t))
+                           (point)))))))
 
 (defun util/org-heading-matching-re (re &optional subtree)
   "Goto first heading matching regexp RE.
@@ -1764,7 +1796,7 @@ If optional SUBTREE is non-nil, search only in current subtree."
             (setq ref (point))))
         ref))))
 
-(defun util/org-insert-link-to-heading (&optional clip-func citation refs)
+(defun util/org-insert-link-to-heading (&optional clip-func citation refs cache-only)
   "Insert a link to selected heading.
 Description of the link is determined by optional CLIP-FUNC.
 If not given, it defaults to `identity'.
@@ -1790,11 +1822,14 @@ See also, `util/org-collect-headings' and
          (clip-func (or clip-func #'identity))
          (text-link-re util/org-text-link-re)
          (headings (pcase read-from
-                     ('buffer (util/org-collect-headings #'util/org-default-heading-filter-p))
+                     ('buffer (util/org-multi-collect-headings
+                               #'util/org-default-heading-filter-p
+                               (buffer-name) cache-only))
                      ('research-files (apply #'-concat
                                              (a-vals
                                               (util/org-multi-collect-headings
-                                               #'util/org-default-heading-filter-p))))
+                                               #'util/org-default-heading-filter-p
+                                               nil cache-only))))
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
                                  (util/org-collect-headings #'util/org-default-heading-filter-p)))))
@@ -1851,9 +1886,9 @@ See also, `util/org-collect-headings' and
                                                        ('research-files (-take 3 x))) " "))
                                       headings)))
          (prompt (pcase read-from
-                   ('buffer "Insert link (cur-buf): ")
-                   ('subtree "Insert link (subtree): ")
-                   ('research-files "Insert link (files): ")))
+                   ('buffer (format "Insert %s (cur-buf): " (if cache-only "from cache" "link")))
+                   ('subtree (format "Insert %s (subtree): " (if cache-only "from cache" "link")))
+                   ('research-files (format "Insert %s (files): " (if cache-only "from cache" "link")))))
          (selected (ido-completing-read prompt selections)))
     (cond ((string-suffix-p " (subtree)" selected)
            (insert (apply #'format "[[%s][%s]]" (reverse (a-get subtree-text-links selected)))))
@@ -1885,6 +1920,13 @@ filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched."
   (interactive)
   (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t))
+
+(defun util/org-insert-citation-to-heading-from-cache ()
+  "Insert a citation to a heading from cache only.
+Like `util/org-insert-citation-to-heading' except doesn't rebuild
+cache on buffer modification."
+  (interactive)
+  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t t))
 
 (defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
   "Subroutine for `util/org-collect-duplicate-headings'.
@@ -2016,6 +2058,8 @@ that function for implementation details."
                     (pt (point))
                     (offset (+ (length org-subtree-clip) inslen)))
                (insert instr)
+               (goto-char (point))
+               (outline-up-heading 1)
                ;; Call helm again with different sources
                ;; TODO: This is broken:
                ;;       1. The positions post update are not correct
@@ -2063,6 +2107,91 @@ searching."
                     :follow 1
                     :action 'util/org-helm-show-dup-actions
                     :keymap util/helm-org-map))))
+
+(defun util/org-collect-duplicate-customids (&optional predicate test)
+  "Check the buffer for duplicate customids.
+With optional boolean function PREDICATE, check only those org
+entries which satisfy it."
+  (let ((custom-id-re (rx (*? " ") ":CUSTOM_ID:" (*? " ") (group (+ (any "a-zA-Z0-9_-")))))
+        (test (or test 'equal))
+        headings dups strings)
+    (save-excursion
+      (goto-char (point-max))
+      (while (re-search-backward custom-id-re nil t)
+        (let* ((id (match-string 1))
+               (el (progn (outline-back-to-heading)
+                          (org-element-at-point)))
+               (heading (org-element-property :title el))
+               (pos (org-element-property :begin el))
+               (item (cons heading pos)))
+          (if predicate
+              (when (funcall predicate heading)
+                (push item headings)
+                (push id strings)
+                (when (> (cl-count check strings :test test) 1)
+                  (let* ((old-pos (cl-position check (reverse strings) :test test))
+                         (old-heading (nth old-pos (reverse headings))))
+                    (unless (cl-member old-heading dups :test test)
+                      (push old-heading dups))
+                    (push item dups))))
+            (push item headings)
+            (push id strings)
+            (when (> (cl-count id strings :test test) 1)
+              (let* ((old-pos (cl-position id (reverse strings) :test test))
+                     (old-heading (nth old-pos (reverse headings))))
+                    (unless (cl-member old-heading dups :test test)
+                      (push old-heading dups))
+                    (push item dups)))))))
+    dups))
+
+
+(defun util/org-helm-show-duplicate-customids (&optional pred)
+  (interactive)
+  (util/with-org-mode
+   (helm :sources (helm-build-sync-source "Duplicate Custom IDs"
+                    :candidates (lambda ()
+                                  (with-helm-current-buffer
+                                    (util/org-collect-duplicate-customids pred)))
+                    :follow 1
+                    :action 'util/org-helm-show-dup-actions
+                    :keymap util/helm-org-map))))
+
+(defun util/org-helm-headings-subr (&optional pred)
+  (let ((in-cache (when util/org-helm-use-headings-cache
+                    (member (buffer-name) (a-keys (util/org-multi-collect-headings
+                                                   #'util/org-default-heading-filter-p
+                                                   (buffer-name))))))
+        (pred (or pred #'identity))
+        headings)
+    (if in-cache
+        (let ((cache (a-get util/org-multi-collect-headings-cache (buffer-name))))
+          (setq headings (-filter #'identity
+                                  (mapcar (lambda (x) (when (funcall pred (car x))
+                                                        (cons (car x) (-last-item x))))
+                                          cache))))
+      (save-excursion
+        (goto-char (point-max))
+        (while (re-search-backward org-complex-heading-regexp nil t)
+          (let* ((el (org-element-at-point))
+                 (heading (org-element-property :title el))
+                 (pos (org-element-property :begin el)))
+            (when (funcall pred heading)
+              (push (cons heading pos) headings))))))
+    headings))
+
+(defun util/org-helm-headings (&optional pred)
+  "Navigate through headings in an org buffer with `helm'.
+With optional predicate PRED, show only those headings which satisfy the
+predicate."
+  (interactive)
+  (util/with-org-mode
+   (helm :sources (helm-build-sync-source "Org Headings"
+                    :candidates (lambda ()
+                                  (with-helm-current-buffer
+                                    (util/org-helm-headings-subr pred)))
+                    :follow 1
+                    :action (helm-make-actions
+                             "Show Entry" 'util/org-helm-show)))))
 
 (defun util/insert-heading-from-url ()
   "Fetch the title from an optional URL.
