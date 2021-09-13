@@ -5,10 +5,10 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 31 August 2021 10:14:00 AM IST>
+;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.1
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1") (xr "1.21"))
+;; Version:     0.3.2
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -40,7 +40,7 @@
 (require 'cl-lib)
 (require 'dash)
 (require 'dired)
-(require 'find-file-in-project)
+(require 'find-file-in-project)         ; Only used for `ffip-project-root'
 (require 'grep)
 (require 'gv)
 (require 'ibuffer)
@@ -48,10 +48,9 @@
 (require 'org)
 (require 'org-element)
 (require 'package)
-(require 'sphinx-doc)
+(require 'sphinx-doc)                   ; FIXME: Not used
 (require 'tern)
 (require 'time-stamp)
-(require 'xr)
 
 (defvar util/insert-heading-python-executable "/usr/bin/python"
   "The python executable for `util/insert-heading-from-url'")
@@ -105,8 +104,9 @@ Used by `util/org-execute-simple-regexp-search'.")
                               (opt (seq "[" (group (+? any)) "]")) "]"))
 (defvar util/org-file-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? any))) "]"
                                   "[" (group (+? any)) "]" "]"))
-(defvar util/org-text-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*" "http") (+? any))) "]"
-                                 "[" (group (+? any)) "]" "]"))
+(defvar util/org-text-link-re (rx "[" "[" (group (or (seq (opt (regexp "file.+?::")) (or "*" "#") (+? any))
+                                                     (regexp "http.+?"))) "]"
+                                  "[" (group (+? any)) "]" "]"))
 
 
 (declare-function org-hide-drawer-toggle "org")
@@ -588,11 +588,44 @@ suffices.  This function does just that.  Adapated from
     ;; return t to indicate that the search is done.
     t)))
 
-(defvar util/org-execute-org-heading-search-prefix-arg-behaviour nil
+(defvar util/org-execute-search-prefix-arg-behaviour nil
   "Behaviour of \\[universal-argument] in `util/org-execute-org-heading-search-*' functions.
 For now only 'pdf is used and opens the PDF_FILE from properties.")
 
-;; TODO: In case there are multiple matches, list all
+(defvar util/org-execute-search-ignore-case t
+  "Ignore case for headings search.")
+
+(defun util/org-execute-search-funcall (args)
+  "Call appropriate function according for org search.
+The value of `util/org-execute-search-prefix-arg-behaviour'
+determines which function to call to value of.  ARGS is a plist
+of arguments."
+  (pcase util/org-execute-search-prefix-arg-behaviour
+    ('pdf (util/org-execute-search-find-pdf-file (plist-get args :pdf-file)))
+    (_ nil)))
+
+(defun util/org-execute-search-find-pdf-file (pdf-file)
+  (when (and pdf-file (f-exists? pdf-file))
+    (find-file pdf-file)))
+
+(defun util/org-execute-search-heading-length-subr (words comment-re cookie-re)
+  "Return length of intersection of WORDS and org heading at point.
+Ignore case if `util/org-execute-search-ignore-case' is non-nil.
+
+WORDS are the search terms given to `util/org-execute-customid-or-max-heading-match-search'.
+See the above function for COMMENT-RE and COOKIE-RE."
+  (let ((words (if util/org-execute-search-ignore-case
+                   (mapcar #'downcase words) words))
+        (func (if util/org-execute-search-ignore-case #'downcase #'identity)))
+      (length (-intersection words
+                             (->> (org-get-heading t t t t)
+                                  (substring-no-properties)
+                                  (replace-regexp-in-string comment-re "")
+                                  (replace-regexp-in-string cookie-re "")
+                                  (funcall func)
+                                  (split-string))))))
+
+;; TODO: Maybe in case there are multiple matches, list all
 (defun util/org-execute-customid-or-max-heading-match-search (str)
   "Return match for either custom-id or org heading.
 If the link is for a custom-id then search for that else if it's
@@ -600,8 +633,11 @@ a fuzzy link then search for a match for minimum three words of
 STR of org heading.  If heading contains less than 3 words, then
 an exact match is searched.
 
-After match, with non-nil \\[universal-argument] execute function according to
-`util/org-execute-org-heading-search-prefix-arg-behaviour'."
+After match, with non-nil \\[universal-argument], execute a function
+ according to `util/org-execute-search-prefix-arg-behaviour'.
+
+If a fuzzy heading search is performed, then the case match
+behaviour is controlled by `util/org-execute-search-ignore-case'."
   (when (derived-mode-p 'org-mode)
     (let* ((buf (current-buffer))
            (case-fold-search t)
@@ -628,22 +664,14 @@ After match, with non-nil \\[universal-argument] execute function according to
           (goto-char (point-min))
           (if custom-id-re
               (progn (re-search-forward custom-id-re)
-                     (push (list (length (-intersection words
-                                                        (split-string
-                                                         (replace-regexp-in-string
-                                                          cookie-re ""
-                                                          (replace-regexp-in-string
-                                                           comment-re "" (org-get-heading t t t t))))))
+                     (push (list (util/org-execute-search-heading-length-subr
+                                  words comment-re cookie-re)
                                  (progn (outline-back-to-heading) (point))
                                  (org-entry-get (point) "PDF_FILE"))
                            matches))
             (while (re-search-forward title-re nil t)
-              (push (list (length (-intersection words
-                                                 (split-string
-                                                  (replace-regexp-in-string
-                                                   cookie-re ""
-                                                   (replace-regexp-in-string
-                                                    comment-re "" (org-get-heading t t t t))))))
+              (push (list (util/org-execute-search-heading-length-subr
+                           words comment-re cookie-re)
                           (point)
                           (org-entry-get (point) "PDF_FILE"))
                     matches))))
@@ -651,12 +679,9 @@ After match, with non-nil \\[universal-argument] execute function according to
                (pdf-prop (org-entry-get pt "PDF_FILE"))
                (pdf-file (when (and pdf-prop (string-match util/file-link-re pdf-prop))
                            (match-string 1 pdf-prop))))
-          (if (and current-prefix-arg
-                   (eq util/org-execute-org-heading-search-prefix-arg-behaviour 'pdf)
-                   pdf-file
-                   (f-exists? pdf-file))
-              (find-file pdf-file)
-            ;; NOTE: Only go there if pdf isn't to be opened
+          (if current-prefix-arg
+              ;; NOTE: Call an appropriate function if prefix arg
+              (util/org-execute-search-funcall `(:pt ,pt :pdf-file ,pdf-file))
             (goto-char pt)
             (beginning-of-line))))
       matches)))
@@ -1449,11 +1474,23 @@ word."
 (defun util/functions-matching-re (re &rest preds)
   "Return list of functions matching regexp RE.
 Optional PREDS is a list of additional predicates to match for
-atoms.  See `util/commands-matching-re' and
-`util/builtins-matching-re' for example of PREDS."
+atoms.  See `util/commands-matching-re' for example of PREDS."
   (let (atoms)
     (mapatoms (lambda (x)
                 (when (and (fboundp x)
+                           (or (not preds)
+                               (funcall (-andfn preds) x))
+                           (string-match-p re (symbol-name x)))
+                  (push x atoms))))
+    atoms))
+
+(defun util/vars-matching-re (re &rest preds)
+  "Return list of variables matching regexp RE.
+Optional PREDS is a list of additional predicates to match for
+atoms."
+  (let (atoms)
+    (mapatoms (lambda (x)
+                (when (and (not (fboundp x))
                            (or (not preds)
                                (funcall (-andfn preds) x))
                            (string-match-p re (symbol-name x)))
@@ -1607,19 +1644,14 @@ used as of now."
               (push (cons hbeg hend) regions))))))
     (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions)))
 
-(defun util/check-fix-custom-ids ()
+(defun util/org-check-fix-custom-ids ()
   "Check for duplicate custom ids in an org buffer and fix them."
   (debug))
 
-;; TODO: This is not used and instead there are only references to
-;;       `util/org-multi-collect-headings-cache'
-(defvar util/org-headings-cache nil
-  "Cache of headings in designated buffers.")
-;; TODO: Should also collect CUSTOM_ID
 (defvar util/org-heading-props-filter-p nil
   "Additional property filter to apply to headings while collecting them.
-Used by `util/org-collect-headings'")
-(defun util/org-collect-headings (predicate)
+Used by `util/org-collect-headings-subr'")
+(defun util/org-collect-headings-subr (predicate)
   "Return headings in an org buffer.
 Select only those headings which satisfy the unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
@@ -1632,79 +1664,83 @@ predicate."
                (heading (or (org-element-property :title el)
                             (org-get-heading t t t t)))
                (author (or (org-element-property :AUTHOR el) ""))
+               (custom-id (or (org-element-property :CUSTOM_ID el) ""))
                (pos (org-element-property :begin el))
                (buf (buffer-name)))
           (when (funcall predicate heading)
-            (push `(,heading ,author ,buf ,pos) headings))))
+            (push `(,heading ,author ,buf ,custom-id ,pos) headings))))
       headings)))
 
-(defvar util/org-multi-collect-headings-cache nil
+(defvar util/org-collect-headings-cache nil
   "Alist of collected headings cache.")
-(defvar util/org-multi-collect-files nil
+(defvar util/org-collect-headings-files nil
   "List of files from which to collect headings.")
-(defvar util/org-multi-collect-modtimes nil
+(defvar util/org-collect-files-modtimes nil
   "Modification times of buffers from which to collect headings.")
-(defvar util/org-multi-collect-buffers nil
+(defvar util/org-collect-buffers nil
   "List of buffers from which to collect headings.")
 
-(defun util/org-multi-collect-setup ()
-  "Setup the `util/org-multi-collect-headings' variables."
+(defun util/org-collect-setup ()
+  "Setup the `util/org-collected-headings' variables."
   (interactive)
-  (setq util/org-multi-collect-buffers
-        (mapcar #'find-file-noselect util/org-multi-collect-files))
-  (setq util/org-multi-collect-modtimes
+  (setq util/org-collect-buffers
+        (mapcar #'find-file-noselect util/org-collect-headings-files))
+  (setq util/org-collect-files-modtimes
         (mapcar
          (lambda (buf) (cons (buffer-name buf)
                              (file-attribute-modification-time
                               (file-attributes (buffer-file-name buf)))))
-         util/org-multi-collect-buffers)))
+         util/org-collect-buffers)))
 
 ;; TODO: Add to cache as current buffer updates.
 ;; TODO: Filter by bufname
-(defun util/org-multi-collect-headings (predicate &optional bufname no-refresh)
+(defun util/org-collected-headings (predicate &optional bufname no-refresh)
   "Return headings in an org buffer satisfying unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
 predicate."
   ;; check mod times of buffers or files
   ;; If updated, add to cache
   ;; Search only in entry cache
-  (unless (-all? #'buffer-live-p util/org-multi-collect-buffers)
-    (util/org-multi-collect-setup))
+  (when util/org-collect-headings-files
+    (cond ((not util/org-collect-buffers)
+           (util/org-collect-setup))
+          ((not (-all? #'buffer-live-p util/org-collect-buffers))
+           (util/org-collect-setup))))
   (let* ((modtimes (mapcar
                     (lambda (buf) (cons (buffer-name buf)
                                         (file-attribute-modification-time
                                          (file-attributes (buffer-file-name buf)))))
-                    util/org-multi-collect-buffers))
+                    util/org-collect-buffers))
          (bufnames (if bufname
                        (list bufname)
-                     (mapcar #'buffer-name util/org-multi-collect-buffers)))
+                     (mapcar #'buffer-name util/org-collect-buffers)))
          (headings (mapcar (lambda (bufname)
                              (cons bufname
                                    (progn
                                      ;;  buf is missing from cache
                                      (unless no-refresh
-                                       (when (or (not (a-get util/org-multi-collect-headings-cache bufname))
+                                       (when (or (not (a-get util/org-collect-headings-cache bufname))
                                                  ;;  cached-buf-modtime < current-buf-modtime
-                                                 (time-less-p (a-get util/org-multi-collect-modtimes
+                                                 (time-less-p (a-get util/org-collect-files-modtimes
                                                                      bufname)
                                                               (a-get modtimes bufname)))
-                                         (setq util/org-multi-collect-headings-cache
+                                         (setq util/org-collect-headings-cache
                                                ;; update cache
-                                               (a-assoc util/org-multi-collect-headings-cache
+                                               (a-assoc util/org-collect-headings-cache
                                                         bufname
                                                         (with-current-buffer bufname
-                                                          (util/org-collect-headings predicate)))
-                                               util/org-multi-collect-modtimes
+                                                          (util/org-collect-headings-subr predicate)))
+                                               util/org-collect-files-modtimes
                                                ;; update modtimes
-                                               (a-assoc util/org-multi-collect-modtimes
+                                               (a-assoc util/org-collect-files-modtimes
                                                         bufname
                                                         (a-get modtimes bufname)))))
-                                     (a-get util/org-multi-collect-headings-cache bufname))))
+                                     (a-get util/org-collect-headings-cache bufname))))
                            bufnames)))
     headings))
 
 (defun util/org-default-heading-filter-p (heading)
-  "Default predicate for `util/org-collect-headings'.
+  "Default predicate for `util/org-collect-headings-subr'.
 Compares length of HEADING with
 `util/org-min-collect-heading-length'."
   (> (length (split-string heading))
@@ -1813,8 +1849,8 @@ offered as options.
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
 
-See also, `util/org-collect-headings' and
-`util/org-multi-collect-headings'."
+See also, `util/org-collect-headings-subr' and
+`util/org-collected-headings'."
   (interactive)
   (let* ((read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
@@ -1822,17 +1858,17 @@ See also, `util/org-collect-headings' and
          (clip-func (or clip-func #'identity))
          (text-link-re util/org-text-link-re)
          (headings (pcase read-from
-                     ('buffer (util/org-multi-collect-headings
-                               #'util/org-default-heading-filter-p
-                               (buffer-name) cache-only))
+                     ('buffer (cdar (util/org-collected-headings
+                                     #'util/org-default-heading-filter-p
+                                     (buffer-name) cache-only)))
                      ('research-files (apply #'-concat
                                              (a-vals
-                                              (util/org-multi-collect-headings
+                                              (util/org-collected-headings
                                                #'util/org-default-heading-filter-p
                                                nil cache-only))))
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
-                                 (util/org-collect-headings #'util/org-default-heading-filter-p)))))
+                                 (util/org-collect-headings-subr #'util/org-default-heading-filter-p)))))
          (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
                                       (save-excursion (outline-back-to-heading (point))))))
          ;; org links in current subtree text
@@ -1870,7 +1906,7 @@ See also, `util/org-collect-headings' and
                                 (save-restriction
                                   (org-narrow-to-subtree)
                                   (narrow-to-region sub (point-max))
-                                  (util/org-collect-headings #'identity)))))))
+                                  (util/org-collect-headings-subr #'identity)))))))
          ;; `subtree-text-links' at the beginning of selections
          ;; then `doc-root-text-links'
          ;; then `references'
@@ -1883,7 +1919,8 @@ See also, `util/org-collect-headings' and
                               (mapcar (lambda (x)
                                         (string-join (pcase read-from
                                                        ((or 'buffer 'subtree) (-take 2 x))
-                                                       ('research-files (-take 3 x))) " "))
+                                                       ('research-files (-take 3 x)))
+                                                     " "))
                                       headings)))
          (prompt (pcase read-from
                    ('buffer (format "Insert %s (cur-buf): " (if cache-only "from cache" "link")))
@@ -1897,8 +1934,12 @@ See also, `util/org-collect-headings' and
           ((string-suffix-p " (references)" selected)
            (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                            (length doc-root-text-links)))
-                  (heading (car (nth indx references))))
-             (insert (format "[[%s*%s][%s]]" "" heading (funcall clip-func heading)))))
+                  (file (format "file:%s::" (buffer-file-name (current-buffer))))
+                  (heading (car (nth indx references)))
+                  (custom-id (nth 3 (nth indx references))))
+             (if (not (string-empty-p custom-id))
+                 (insert (format "[[%s#%s][%s]]" file custom-id (funcall clip-func heading)))
+               (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading))))))
           (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                              (length doc-root-text-links) (length references)))
                     (file (pcase read-from
@@ -1906,11 +1947,14 @@ See also, `util/org-collect-headings' and
                                               "file:%s::"
                                               (buffer-file-name
                                                (get-buffer (nth 2 (nth indx headings))))))
-                            (_ "")))
+                            (_ (buffer-file-name (current-buffer)))))
                     (heading (pcase read-from
                                ('research-files (car (nth indx headings)))
-                               (_ (car (nth indx headings))))))
-               (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading))))))))
+                               (_ (car (nth indx headings)))))
+                    (custom-id (nth 3 (nth indx headings))))
+               (if (not (string-empty-p custom-id))
+                   (insert (format "[[%s#%s][%s]]" file custom-id (funcall clip-func heading)))
+                 (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading)))))))))
 
 (defun util/org-insert-citation-to-heading ()
   "Insert a citation to a heading.
@@ -1956,9 +2000,9 @@ some reason."
 
 (defvar util/org-helm-use-headings-cache t
   "Whether to use headings from `util/org-headings-cache'.
-Cache is returned from `util/org-multi-collect-headings' and is
+Cache is returned from `util/org-collected-headings' and is
 auto updated if the file has changed on disk.  See
-`util/org-multi-collect-headings'.")
+`util/org-collected-headings'.")
 
 (defvar util/org-duplicate-headings nil
   "Global variable to easily access duplicate headings found in buffer.")
@@ -1975,12 +2019,12 @@ Optional TEST is which test function to use for `cl-count'.
 Defaults to `equal'."
   (let* ((test (or test 'equal))
          (in-cache (when util/org-helm-use-headings-cache
-                     (member (buffer-name) (a-keys (util/org-multi-collect-headings
+                     (member (buffer-name) (a-keys (util/org-collected-headings
                                                     #'util/org-default-heading-filter-p
                                                     (buffer-name))))))
          headings dups strings)
     (if in-cache
-        (let ((cache (a-get util/org-multi-collect-headings-cache (buffer-name))))
+        (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
           (dolist (elem cache)
             (let ((heading (car elem))
                   (pos (-last-item elem)))
@@ -2093,6 +2137,7 @@ that function for implementation details."
     new-map)
   "Keymap for `helm-org-rifle'.")
 
+;; TODO: Should the names be util/org-helm-* or util/helm-org-* ?
 (defun util/org-helm-show-duplicate-headings (&optional pred ignore-case)
   "Show duplicate headings in an org buffer with `helm'.
 With optional predicate PRED, show only those which satisfy the
@@ -2128,8 +2173,8 @@ entries which satisfy it."
               (when (funcall predicate heading)
                 (push item headings)
                 (push id strings)
-                (when (> (cl-count check strings :test test) 1)
-                  (let* ((old-pos (cl-position check (reverse strings) :test test))
+                (when (> (cl-count item strings :test test) 1)
+                  (let* ((old-pos (cl-position item (reverse strings) :test test))
                          (old-heading (nth old-pos (reverse headings))))
                     (unless (cl-member old-heading dups :test test)
                       (push old-heading dups))
@@ -2158,13 +2203,13 @@ entries which satisfy it."
 
 (defun util/org-helm-headings-subr (&optional pred)
   (let ((in-cache (when util/org-helm-use-headings-cache
-                    (member (buffer-name) (a-keys (util/org-multi-collect-headings
+                    (member (buffer-name) (a-keys (util/org-collected-headings
                                                    #'util/org-default-heading-filter-p
                                                    (buffer-name))))))
         (pred (or pred #'identity))
         headings)
     (if in-cache
-        (let ((cache (a-get util/org-multi-collect-headings-cache (buffer-name))))
+        (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
           (setq headings (-filter #'identity
                                   (mapcar (lambda (x) (when (funcall pred (car x))
                                                         (cons (car x) (-last-item x))))
@@ -2193,7 +2238,7 @@ predicate."
                     :action (helm-make-actions
                              "Show Entry" 'util/org-helm-show)))))
 
-(defun util/insert-heading-from-url ()
+(defun util/insert-heading-from-url (&optional with-header)
   "Fetch the title from an optional URL.
 URL is copied from clipboard if not given.
 
@@ -2206,11 +2251,13 @@ Requires python, and python packages \"bs4\", \"requests\" and
    (org-indent-line)
    (insert "- ")
    (yank)
-   (org-edit-headline
-    (string-trim (shell-command-to-string
-                  (format "%s -c 'import requests; from bs4 import BeautifulSoup; headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate, br\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}; print(BeautifulSoup(requests.get(\"%s\", headers=headers).content).title.text)'"
-                          util/insert-heading-python-executable
-                          (org-element-property :raw-link (org-element-context))))))))
+   (let ((headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
+     (org-edit-headline
+      (string-trim (shell-command-to-string
+                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content).title.text)'"
+                            util/insert-heading-python-executable
+                            (org-element-property :raw-link (org-element-context))
+                            headers)))))))
 
 ;; TODO
 ;; (defun util/run-python-file-from-str (str &optional python-path args)

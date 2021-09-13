@@ -32,7 +32,7 @@
   `util/ffip-grep-default`, `util/ffip-grep-git-files` and associated functions.
 - Version bump to `0.3.0`.
 
-## [2021-09-09 Thu 01:46]
+## [2021-09-13 Mon 10:03]
 - Fixed `util/file-link-re`
 - Changed `util/org-execute-org-heading-max-match-search` to
   `util/org-execute-customid-or-max-heading-match-search`.
@@ -40,3 +40,8 @@
 - Added `util/org-insert-citation-to-heading-from-cache`, `util/org-collect-duplicate-customids`,
   `util/org-helm-show-duplicate-customids`, `util/org-helm-headings` and subroutine for it
 - Version bump to `0.3.1`
+- Added `util/org-execute-search-funcall` and separated `util/org-execute-search-find-pdf-file`.
+- Separated `util/org-execute-search-heading-length-subr` and streamlined
+  `util/org-execute-customid-or-max-heading-match-search`
+- Added `util/vars-matching-re`
+- Version bump to `0.3.0`.
