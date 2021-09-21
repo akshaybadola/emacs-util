@@ -44,4 +44,9 @@
 - Separated `util/org-execute-search-heading-length-subr` and streamlined
   `util/org-execute-customid-or-max-heading-match-search`
 - Added `util/vars-matching-re`
-- Version bump to `0.3.0`.
+- Version bump to `0.3.2`.
+
+## [2021-09-21 Tue 14:02]
+- Fixed a bug that inserted incorrect links when doing so in current buffer for
+  `util/org-insert-link-to-heading`
+- Version bump will be automatic from now.

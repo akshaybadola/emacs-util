@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.2
+;; Version:     0.3.3
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -1942,12 +1942,12 @@ See also, `util/org-collect-headings-subr' and
                (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading))))))
           (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                              (length doc-root-text-links) (length references)))
-                    (file (pcase read-from
-                            ('research-files (format
-                                              "file:%s::"
-                                              (buffer-file-name
-                                               (get-buffer (nth 2 (nth indx headings))))))
-                            (_ (buffer-file-name (current-buffer)))))
+                    (file (format
+                           "file:%s::"
+                           (pcase read-from
+                             ('research-files (buffer-file-name
+                                               (get-buffer (nth 2 (nth indx headings)))))
+                             (_ (buffer-file-name (current-buffer))))))
                     (heading (pcase read-from
                                ('research-files (car (nth indx headings)))
                                (_ (car (nth indx headings)))))
