@@ -50,3 +50,8 @@
 - Fixed a bug that inserted incorrect links when doing so in current buffer for
   `util/org-insert-link-to-heading`
 - Version bump will be automatic from now.
+
+## [2021-09-24 Fri 12:26]
+- Fixed a bug in `util/org-execute-customid-or-max-heading-match-search` where
+  in case custom-id being searched is not found
+- Added `util/org-delete-file-under-point` and `util/org-move-file-under-point`

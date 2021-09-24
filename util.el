@@ -663,12 +663,13 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
         (save-excursion
           (goto-char (point-min))
           (if custom-id-re
-              (progn (re-search-forward custom-id-re)
-                     (push (list (util/org-execute-search-heading-length-subr
-                                  words comment-re cookie-re)
-                                 (progn (outline-back-to-heading) (point))
-                                 (org-entry-get (point) "PDF_FILE"))
-                           matches))
+              (when (re-search-forward custom-id-re)
+                (org-reveal)
+                (push (list (util/org-execute-search-heading-length-subr
+                             words comment-re cookie-re)
+                            (progn (outline-back-to-heading) (point))
+                            (org-entry-get (point) "PDF_FILE"))
+                      matches))
             (while (re-search-forward title-re nil t)
               (push (list (util/org-execute-search-heading-length-subr
                            words comment-re cookie-re)
@@ -683,7 +684,8 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
               ;; NOTE: Call an appropriate function if prefix arg
               (util/org-execute-search-funcall `(:pt ,pt :pdf-file ,pdf-file))
             (goto-char pt)
-            (beginning-of-line))))
+            (beginning-of-line)
+            (org-reveal))))
       matches)))
 
 (defun util/try-copy-help-buffer-link ()
@@ -1796,6 +1798,76 @@ If no subheadings exist, return nil."
     (save-excursion
       (org-narrow-to-subtree)
       (outline-next-heading))))
+
+(defun util/org-delete-file-under-point ()
+  "Delete file for link under point.
+When in org mode, delete the link text also."
+  (interactive)
+  (pcase-let* ((link (get-text-property (point) 'htmlize-link))
+               (context (org-element-context))
+               (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
+                                               (plist-get (cadr context) :end))
+                               (list nil nil)))
+               (uri (plist-get link :uri))
+               (uri (and link uri (f-exists? uri) uri)))
+    (if (not uri)
+        (message "Nothing to do here")
+      (f-delete uri)
+      (message "Deleted file %s" uri)
+      (if (and beg end)
+          (delete-region beg end)
+        (message "Could not delete the link text")))))
+
+(defun util/org-move-file-under-point ()
+  "Move file for link under point.
+Update the org link also when in org mode."
+  (interactive)
+  (pcase-let* ((link (get-text-property (point) 'htmlize-link))
+               (context (org-element-context))
+               (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
+                                               (plist-get (cadr context) :end))
+                               (list nil nil)))
+               (uri (plist-get link :uri))
+               (uri (when uri (replace-regexp-in-string "file:" "" (plist-get link :uri))))
+               (uri (and link uri (f-exists? uri) uri))
+               (dir (when uri
+                      (f-expand (concat (if (f-directory? uri)
+                                            (string-remove-suffix "/" uri)
+                                          (f-dirname uri))
+                                        "/"))))
+               (newname))
+    (if (not uri)
+        (message "Nothing to do here")
+      (setq newname (f-expand (read-file-name "New name for file: " dir dir)))
+      (let ((src-dir (f-directory? uri))
+            (target-exists (f-exists? newname))
+            (target-dir (f-directory? newname)))
+        (cond ((and src-dir target-exists)
+               (message "Cannot move source directory if target exists"))
+              ;; NOTE: move to target dir if target is a directory
+              (target-dir
+               (message "Cannot move to target if it is a directory"))
+              (target-exists
+               (message "maybe overwrite"))
+              (t
+               ;; (rename-file uri newname)
+               (save-excursion
+                 (when (derived-mode-p 'org-mode)
+                   (let ((beg (point))
+                         end desc)
+                     (when (looking-back "\\[\\[\\(.+?\\)")
+                       (setq beg (match-beginning 0))
+                       (goto-char beg))
+                     (when (looking-at "\\(.+?\\)\\]]")
+                       (setq end (match-end 0))
+                       (setq desc (substring-no-properties
+                                   (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1)))))
+                     (delete-region beg end)
+                     (goto-char beg)
+                     (if (and desc (not (string= desc uri)))
+                         (insert (format "[[%s][%s]]" newname desc))
+                       (insert (format "[[%s]]" newname)))
+                     (message "Renamed to %s" newname))))))))))
 
 (defun util/org-get-tree-prop (prop &optional heading)
   "Return point up the tree checking for property PROP.
