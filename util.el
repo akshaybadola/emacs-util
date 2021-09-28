@@ -7,8 +7,8 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.3
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (sphinx-doc "0.3.0") (tern "0.0.1"))
+;; Version:     0.3.4
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -48,7 +48,6 @@
 (require 'org)
 (require 'org-element)
 (require 'package)
-(require 'sphinx-doc)                   ; FIXME: Not used
 (require 'tern)
 (require 'time-stamp)
 
@@ -642,9 +641,10 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
     (let* ((buf (current-buffer))
            (case-fold-search t)
            (words (split-string (string-remove-prefix "*" str) " "))
+           ;; FIXME: I'm not sure this comment and todo regexp is correct
            (todo-comment-re (if (derived-mode-p 'org-mode)
-                                (rx (group (regexp org-todo-regexp)))
-                              (rx (or (regexp org-comment-string)))))
+                                (format "\\(?:%s\\|%s\\)?" org-todo-regexp org-comment-string)
+                              (format "\\(?:%s\\)?" org-comment-string)))
            (custom-id-re (when (pcase (string-match-p "^#[a-zA-Z0-9_-]+$" str)
                                  (0 t)
                                  (_ nil))
@@ -652,10 +652,13 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
            (title (if (< (length words) 3)
                       (string-join words " ")
                     (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".*")))
-           (title-re (rx bol (+ "*") " "
-                       (opt (seq (regexp todo-comment-re) " "))
-                       (group (regexp title))
-                       eol))
+           (title-re
+            ;; NOTE: Changed from rx to format for compatibility reasons
+            ;; (rx bol (+ "*") " "
+            ;;            (opt (seq (regexp todo-comment-re) " "))
+            ;;            (group (regexp title))
+            ;;            eol)
+            (format "^\\*+ \\(?:\\(?:%s\\) \\)?\\(%s\\)$" todo-comment-re title))
            (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
            (comment-re org-comment-regexp)
            matches)
@@ -1855,7 +1858,7 @@ Update the org link also when in org mode."
                  (when (derived-mode-p 'org-mode)
                    (let ((beg (point))
                          end desc)
-                     (when (looking-back "\\[\\[\\(.+?\\)")
+                     (when (looking-back "\\[\\[\\(.+?\\)" 1)
                        (setq beg (match-beginning 0))
                        (goto-char beg))
                      (when (looking-at "\\(.+?\\)\\]]")

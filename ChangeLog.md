@@ -55,3 +55,7 @@
 - Fixed a bug in `util/org-execute-customid-or-max-heading-match-search` where
   in case custom-id being searched is not found
 - Added `util/org-delete-file-under-point` and `util/org-move-file-under-point`
+
+## [2021-09-28 Tue 16:50]
+- Fixed some compatibility issues with older `emacs-version==25.x.x`
+- Removed `sphinx-doc` as dependency.
