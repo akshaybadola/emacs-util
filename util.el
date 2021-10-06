@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.4
+;; Version:     0.3.5
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -99,13 +99,13 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
-(defvar util/file-link-re (rx "[" "[" (opt "file:") (group (+? any)) "]"
+(defvar util/file-link-re (rx "[" "[" (group (seq (opt "file:") (or "/" "~") (+? any))) "]"
                               (opt (seq "[" (group (+? any)) "]")) "]"))
 (defvar util/org-file-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? any))) "]"
                                   "[" (group (+? any)) "]" "]"))
 (defvar util/org-text-link-re (rx "[" "[" (group (or (seq (opt (regexp "file.+?::")) (or "*" "#") (+? any))
-                                                     (regexp "http.+?"))) "]"
-                                  "[" (group (+? any)) "]" "]"))
+                                                     (regexp "http.+?")))
+                                  "]" "[" (group (+? any)) "]" "]"))
 
 
 (declare-function org-hide-drawer-toggle "org")
@@ -605,7 +605,11 @@ of arguments."
 
 (defun util/org-execute-search-find-pdf-file (pdf-file)
   (when (and pdf-file (f-exists? pdf-file))
-    (find-file pdf-file)))
+    (if (string-suffix-p ".djvu" pdf-file)
+        (let ((async-shell-command-buffer 'new-buffer)
+              (async-shell-command-display-buffer nil))
+          (async-shell-command (format "evince \"%s\"" pdf-file)))
+      (find-file pdf-file))))
 
 (defun util/org-execute-search-heading-length-subr (words comment-re cookie-re)
   "Return length of intersection of WORDS and org heading at point.
@@ -1559,18 +1563,38 @@ is not used."
                   (push (cons bol end) regions)))))))
       (mapcar (lambda (x) (delete-region (car x) (cdr x))) regions))))
 
-(defun util/org-heading-and-body-bounds ()
+(defun util/org-remove-links (predicate)
+  "Remove all links from org buffer which satisfy PREDICATE."
+  (when (eq major-mode 'org-mode)
+    (goto-char (point-min))
+    (while (re-search-forward (format " +%s" org-link-any-re) nil t)
+      (let ((match (match-string 0)))
+        (when (save-match-data (funcall predicate match))
+          (replace-match " "))))))
+
+(defun util/org-remove-all-file-links ()
+  "Remove all file links from org buffer."
+  (util/org-remove-links (-partial #'string-match-p util/file-link-re)))
+
+(defun util/org-heading-and-body-bounds (&optional no-metadata)
   "Return bounds of text body if present in org subtree.
 
 Return value is a triple of '(beg end has-body) where beg is the
-point after metadata, end is the point at end of subtree and
-has-body indicates if any text is present."
-  (let* ((beg (progn (unless (org-at-heading-p)
-                       (outline-back-to-heading))
-                     (point)))
-         (end (progn
-                (outline-next-heading)
-                (point)))
+point at heading, end is the point at end of subtree and
+has-body indicates if any text is present.
+
+If optional NO-METADATA is non-nil then 'beg points to beginning
+of line after metadata."
+  (let* ((beg (progn (save-excursion
+                       (unless (org-at-heading-p)
+                         (outline-back-to-heading))
+                       (when no-metadata
+                         (org-end-of-meta-data))
+                       (point))))
+         (end (save-excursion
+                (progn
+                  (outline-next-heading)
+                  (max beg (- (point) 1)))))
          (has-body (not (string-empty-p
                          (string-trim
                           (buffer-substring-no-properties beg end))))))
@@ -1580,25 +1604,22 @@ has-body indicates if any text is present."
 (defun util/org-narrow-to-heading-and-body ()
   "Narrow to the current heading and the body.
 Unlike `org-narrow-to-subtree' any headings which are children of
-the current heading are excluded."
+the current heading are excluded.
+
+If optional NO-METADATA is non-nil then return text after
+metadata."
   (pcase-let ((`(,beg ,end ,has-body) (util/org-heading-and-body-bounds)))
-    )
-  ;; (let (pmin pmax)
-  ;;   (org-narrow-to-subtree)
-  ;;   (save-excursion
-  ;;     (goto-char (point-min))
-  ;;     (org-show-subtree)
-  ;;     (beginning-of-line)
-  ;;     (if (eq (point-min) (point))
-  ;;         (setq pmin (point))
-  ;;       (org-previous-visible-heading 1)
-  ;;       (setq pmin (point)))
-  ;;     (org-next-visible-heading 1)
-  ;;     (setq pmax (point))
-  ;;     (narrow-to-region pmin pmax)))
-  )
+    (when (and has-body beg end)
+      (narrow-to-region beg end))))
+
+(defun util/org-narrow-to-text-body ()
+  "Narrow to the current heading's text body only."
+  (pcase-let ((`(,beg ,end ,has-body) (util/org-heading-and-body-bounds t)))
+    (when (and has-body beg end)
+      (narrow-to-region beg end))))
 
 (defun util/org-get-subtree-with-body-for-heading-matching-re (str)
+  "Get subtree with text body if heading matches STR."
   (let ((case-fold-search t)
         match)
     (goto-char (point-min))
@@ -2118,6 +2139,7 @@ Defaults to `equal'."
     util/org-duplicate-headings))
 
 (defun util/org-helm-show (char)
+  "Show the org entry including property block at point CHAR."
   (interactive)
   (goto-char char)
   (recenter-top-bottom)
@@ -2142,6 +2164,21 @@ Defaults to `equal'."
   (interactive)
   (with-helm-current-buffer
     (message (org-format-outline-path (org-get-outline-path)))))
+
+(defun util/org-helm-copy-persistent ()
+  (interactive)
+  (with-helm-alive-p
+    (helm-set-attr 'copy-link-to-entry '(util/org-helm-copy-link-to-entry . never-split))
+    (helm-execute-persistent-action 'copy-link-to-entry)))
+(put 'util/org-helm-copy-persistent 'helm-only t)
+
+(defun util/org-helm-show-outline-persistent ()
+  (interactive)
+  (with-helm-alive-p
+    (helm-set-attr 'copy-link-to-entry '(util/org-helm-copy-link-to-entry . never-split))
+    (helm-execute-persistent-action 'copy-link-to-entry)))
+(put 'util/org-helm-copy-persistent 'helm-only t)
+
 
 ;; TODO: If they're in the same subtree, just delete one of them
 ;; TODO: Subtract the number of characters from each POS after POINT from DUPS
@@ -2197,6 +2234,49 @@ that function for implementation details."
                ;;                  :keymap util/helm-org-map)))
                ))))))
 
+;; TODO: Perhaps can add a timer to warn user if copying link after long time so
+;;       that on first copy `util/org-copy-link-append' should be nil. Or the
+;;       timer could set `util/org-copy-link-append' automatically to nil.
+(defvar util/org-copy-link-append nil)
+(defun util/org-copy-link-to-heading (&optional prefix-arg)
+  "Copy link to current heading.
+
+Prefer custom-id but default to fuzzy link.  Optional PREFIX-ARG
+is for checking interactive usage."
+  (interactive "p")
+  (when (eq prefix-arg 4)
+    (setq util/org-copy-link-append nil))
+  (let* ((case-fold-search t)
+         (heading (org-get-heading t t t t))
+         (props (org-entry-properties))
+         (custom-id (a-get props "CUSTOM_ID"))
+         (option (if custom-id (concat "#" custom-id) (concat "*" heading)))
+         (filename (buffer-file-name))
+         (link (format "[[%s::%s][%s]]" filename option heading)))
+    (if prefix-arg
+        (if util/org-copy-link-append
+            (progn (kill-append (concat "\n" link) nil)
+                   (message "Appened link %s to last kill" heading))
+          (kill-new link)
+          (setq util/org-copy-link-append t)
+          (message "Killed new link to %s" heading))
+      link)))
+
+(defvar util/org-helm-kill-append nil)
+
+(defun util/org-helm-copy-link-to-entry (&rest args)
+  "Copy the link to current entry in helm buffer.
+This doesn't store the link but copies it to the kill ring.  In
+case multiple links are copied in the same session they are
+appended to the kill ring separated with a newline."
+  (interactive "P")
+  (with-helm-current-buffer
+    (let ((link (util/org-copy-link-to-heading)))
+      (if util/org-helm-kill-append
+          (kill-append (concat "\n" link) nil)
+        (kill-new link)
+        (setq util/org-helm-kill-append t)))))
+
 (defvar util/org-helm-show-dup-actions
   (helm-make-actions
    "Show Entry" 'util/org-helm-show
@@ -2204,7 +2284,7 @@ that function for implementation details."
    "Show Entry Path" 'util/org-helm-show-outline
    "Replace with link" 'util/org-helm-replace-heading-as-list-item))
 
-(defvar util/helm-org-map
+(defvar util/helm-org-show-dup-map
   (let ((new-map (copy-keymap helm-map)))
     (define-key new-map (kbd "C-k") 'util/org-helm-delete)
     (define-key new-map (kbd "C-l") 'util/org-helm-show-outline)
@@ -2226,7 +2306,7 @@ searching."
                                     (util/org-collect-duplicate-headings pred ignore-case)))
                     :follow 1
                     :action 'util/org-helm-show-dup-actions
-                    :keymap util/helm-org-map))))
+                    :keymap util/helm-org-show-dup-map))))
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.
@@ -2274,9 +2354,13 @@ entries which satisfy it."
                                     (util/org-collect-duplicate-customids pred)))
                     :follow 1
                     :action 'util/org-helm-show-dup-actions
-                    :keymap util/helm-org-map))))
+                    :keymap util/helm-org-show-dup-map))))
 
 (defun util/org-helm-headings-subr (&optional pred)
+  "Return all headings with position satisfying PRED.
+
+Primarily a subroutine for `util/org-helm-headings'.  Optional
+PRED defaults to `identity'."
   (let ((in-cache (when util/org-helm-use-headings-cache
                     (member (buffer-name) (a-keys (util/org-collected-headings
                                                    #'util/org-default-heading-filter-p
@@ -2299,19 +2383,28 @@ entries which satisfy it."
               (push (cons heading pos) headings))))))
     headings))
 
+(defvar util/org-helm-headings-map
+  (let ((new-map (copy-keymap helm-map)))
+    (define-key new-map (kbd "C-w") 'util/org-helm-copy-link-to-entry)
+    new-map)
+  "Keymap for `util/org-helm-headings'.")
+
 (defun util/org-helm-headings (&optional pred)
   "Navigate through headings in an org buffer with `helm'.
 With optional predicate PRED, show only those headings which satisfy the
 predicate."
   (interactive)
   (util/with-org-mode
+   (setq util/org-helm-kill-append nil)
    (helm :sources (helm-build-sync-source "Org Headings"
                     :candidates (lambda ()
                                   (with-helm-current-buffer
                                     (util/org-helm-headings-subr pred)))
                     :follow 1
                     :action (helm-make-actions
-                             "Show Entry" 'util/org-helm-show)))))
+                             "Show Entry" 'util/org-helm-show
+                             "Copy Link to Entry" 'util/org-helm-copy-persistent)
+                    :keymap util/org-helm-headings-map))))
 
 (defun util/insert-heading-from-url (&optional with-header)
   "Fetch the title from an optional URL.

@@ -59,3 +59,8 @@
 ## [2021-09-28 Tue 16:50]
 - Fixed some compatibility issues with older `emacs-version==25.x.x`
 - Removed `sphinx-doc` as dependency.
+
+## [2021-10-06 Wed 16:06]
+- Added `util/org-helm-copy-link-to-entry` and `util/copy-link-to-heading` and
+  helper functions with some variables.
+- Also added `util/org-remove-links`
