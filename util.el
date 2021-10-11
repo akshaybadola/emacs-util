@@ -99,13 +99,28 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
-(defvar util/file-link-re (rx "[" "[" (group (seq (opt "file:") (or "/" "~") (+? any))) "]"
-                              (opt (seq "[" (group (+? any)) "]")) "]"))
-(defvar util/org-file-link-re (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? any))) "]"
-                                  "[" (group (+? any)) "]" "]"))
-(defvar util/org-text-link-re (rx "[" "[" (group (or (seq (opt (regexp "file.+?::")) (or "*" "#") (+? any))
-                                                     (regexp "http.+?")))
-                                  "]" "[" (group (+? any)) "]" "]"))
+(defvar util/org-file-link-re
+  (rx "[" "[" (group (seq (opt "file:") (or "/" "~") (+? any))) "]"
+      (opt (seq "[" (group (+? any)) "]")) "]")
+  "Matches any org file link.")
+(defvar util/org-fuzzy-link-re
+  (rx "[" "[" (group (seq (or (regexp "file.+?::\\*") "*") (+? nonl))) "]"
+      "[" (group (+? nonl)) "]" "]")
+  "Regexp for matching an org fuzzy link.")
+(defvar util/org-fuzzy-or-custom-id-link-re
+  (rx "[" "[" (group (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
+                          (or "*" "#") (+? any)))
+      "]" "[" (group (+? any)) "]" "]")
+  "Regexp for matching an org fuzzy or custom-id text link.
+First group match gives the link and the second the description.")
+(defvar util/org-text-link-re
+  (rx "[" "[" (group (or (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
+                              (or "*" "#") (+? any))
+                         (regexp "http.+?")))
+      "]" "[" (group (+? any)) "]" "]")
+  "Regexp for matching a org text link.
+Matches square bracket links or http links in org text.  First
+group match gives the link and the second the description.")
 
 
 (declare-function org-hide-drawer-toggle "org")
@@ -685,11 +700,16 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
                     matches))))
         (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
                (pdf-prop (org-entry-get pt "PDF_FILE"))
-               (pdf-file (when (and pdf-prop (string-match util/file-link-re pdf-prop))
+               (pdf-file (when (and pdf-prop (string-match util/org-file-link-re pdf-prop))
                            (match-string 1 pdf-prop))))
           (if current-prefix-arg
               ;; NOTE: Call an appropriate function if prefix arg
-              (util/org-execute-search-funcall `(:pt ,pt :pdf-file ,pdf-file))
+              (if pdf-file
+                  (util/org-execute-search-funcall `(:pt ,pt :pdf-file ,pdf-file))
+                (message "No pdf file for link")
+                (goto-char pt)
+                (beginning-of-line)
+                (org-reveal))
             (goto-char pt)
             (beginning-of-line)
             (org-reveal))))
@@ -1574,7 +1594,7 @@ is not used."
 
 (defun util/org-remove-all-file-links ()
   "Remove all file links from org buffer."
-  (util/org-remove-links (-partial #'string-match-p util/file-link-re)))
+  (util/org-remove-links (-partial #'string-match-p util/org-file-link-re)))
 
 (defun util/org-heading-and-body-bounds (&optional no-metadata)
   "Return bounds of text body if present in org subtree.
@@ -1628,6 +1648,18 @@ metadata."
          (setq match (match-beginning 0)))
     (unless match
       (debug))
+    (when match
+      (util/org-narrow-to-heading-and-body)
+      (buffer-string))))
+
+(defun util/org-get-subtree-with-body-for-custom-id (str)
+  "Get subtree with text body if CUSTOM_ID matches STR."
+  (let ((case-fold-search t)
+        match)
+    (goto-char (point-min))
+    (and (re-search-forward (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str)) nil t)
+         (goto-char (match-beginning 0))
+         (setq match (match-beginning 0)))
     (when match
       (util/org-narrow-to-heading-and-body)
       (buffer-string))))
