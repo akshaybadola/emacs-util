@@ -7,8 +7,8 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
 ;; Keywords:	utility
-;; Version:     0.3.5
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.4.4") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (tern "0.0.1"))
+;; Version:     0.3.6
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (tern "0.0.1"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -36,7 +36,6 @@
 ;;; Code:
 
 (require 'a)
-(require 'helm)
 (require 'cl-lib)
 (require 'dash)
 (require 'dired)
@@ -180,6 +179,7 @@ The head of the list is the associative element.
 Example:
     (pairs-to-alist '((a b) (b c d) (a d) (e f)))
      => '((a b d) (b c d) (e f))"
+  (declare (pure t) (side-effect-free t))
   (when (and (consp pairs) (a-assoc pairs))
     (let (newlist)
       (seq-do (lambda (x)
@@ -297,10 +297,11 @@ See `time-stamp-format' for how to use the format."
                         ("%H" . "[0-9]\\\\{2\\\\}")
                         ("%M" . "[0-9]\\\\{2\\\\}")
                         ("<" . "[<\\\\|[]")
-                        (">" . "[]\\\\|>]"))))
+                        (">" . "[]\\\\|>]")))
+        (retval ts-format))
     (dolist (pattern pattern-list)
-      (setq ts-format (replace-regexp-in-string (car pattern) (cdr pattern) ts-format)))
-    ts-format))
+      (setq retval (replace-regexp-in-string (car pattern) (cdr pattern) ts-format)))
+    retval))
 
 (defun util/generate-org-ts-regexp (ts-list)
   "Generate a single regexp from a `time-stamp' formats list TS-LIST."
@@ -829,6 +830,23 @@ the results."
                (package-delete (cadr (assoc x package-alist)))))
            pkg-list))
 
+(defun util/package-required-by (pkg-name-or-symbol &optional all)
+  "Return alist of symbols of installed packages which require PKG-NAME-OR-SYMBOL.
+PKG-NAME-OR-SYMBOL can be a symbol or a string. With optional
+argument ALL, return dependent packages from archives also (not implemented)."
+  (let* ((name (if (symbolp pkg-name-or-symbol)
+                   pkg-name-or-symbol
+                 (intern pkg-name-or-symbol)))
+         (reqs (mapcar (lambda (x)
+                         (let ((desc (cadr x)))
+                           (cons (package-desc-name desc) (package-desc-reqs desc))))
+                       package-alist)))
+    (when all (message "ALL not implemented"))
+    (mapcar 'car (-non-nil (mapcar (lambda (x)
+                                     (let ((req-names (mapcar 'car (cdr x))))
+                                       (when (member name req-names) x)))
+                                   reqs)))))
+
 (defun util/package-top-level-packages ()
   "Return list of packages which are not a dependency."
   (-non-nil (mapcar (lambda (x)
@@ -848,23 +866,6 @@ string in the file where the library is defined"
       (string-match ";; version: \\(.*\\)" str)
       (when (match-string 1 str)
         (string-trim (match-string 1 str))))))
-
-(defun util/package-required-by (pkg-name-or-symbol &optional all)
-  "Return alist of symbols of installed packages which require PKG-NAME-OR-SYMBOL.
-PKG-NAME-OR-SYMBOL can be a symbol or a string. With optional
-argument ALL, return dependent packages from archives also (not implemented)."
-  (let* ((name (if (symbolp pkg-name-or-symbol)
-                   pkg-name-or-symbol
-                 (intern pkg-name-or-symbol)))
-         (reqs (mapcar (lambda (x)
-                         (let ((desc (cadr x)))
-                           (cons (package-desc-name desc) (package-desc-reqs desc))))
-                       package-alist)))
-    (when all (message "ALL not implemented"))
-    (mapcar 'car (-non-nil (mapcar (lambda (x)
-                                     (let ((req-names (mapcar 'car (cdr x))))
-                                       (when (member name req-names) x)))
-                                   reqs)))))
 
 (defun util/package-info (pkg-name-or-symbol)
   "Return plist of all the info for a given PKG-NAME-OR-SYMBOL.
@@ -1150,6 +1151,7 @@ newlines from the end also."
 
 (defun util/get-buffers-matching-mode (mode)
   "Return a list of buffers where their `major-mode' is equal to MODE."
+  (declare (pure t) (side-effect-free t))
   (let (buffer-mode-matches)
     (dolist (buf (buffer-list))
       (with-current-buffer buf
@@ -1219,12 +1221,14 @@ symbol, prompt the user for the symbol."
 
 (defun util/path-join (&rest elements)
   "Safely concatenate path ELEMENTS in a consistent manner."
+  (declare (pure t) (side-effect-free t))
   (concat (if (string-prefix-p "~" (car elements)) "" "/" )
           (mapconcat (lambda (x)
                        (string-remove-prefix "/" (string-remove-suffix "/" x)))
                      elements "/")))
 
 (defun util/max-ind (seq)
+  (declare (pure t) (side-effect-free t))
   (let* ((max-val 0) (ind -1) (max 0))
     (cl-loop for x in seq
           do
@@ -1729,6 +1733,13 @@ predicate."
             (push `(,heading ,author ,buf ,custom-id ,pos) headings))))
       headings)))
 
+(defun util/org-get-headings-from-cache (bufname)
+  (when (member bufname
+                (a-keys (util/org-collected-headings
+                         #'util/org-default-heading-filter-p
+                         bufname)))
+    (a-get util/org-collect-headings-cache bufname)))
+
 (defvar util/org-collect-headings-cache nil
   "Alist of collected headings cache.")
 (defvar util/org-collect-headings-files nil
@@ -1751,11 +1762,15 @@ predicate."
          util/org-collect-buffers)))
 
 ;; TODO: Add to cache as current buffer updates.
-;; TODO: Filter by bufname
 (defun util/org-collected-headings (predicate &optional bufname no-refresh)
   "Return headings in an org buffer satisfying unary PREDICATE.
 See `util/org-default-heading-filter-p' for an example of such a
-predicate."
+predicate.
+
+With optional BUFNAME, return headings only for that buffer.
+
+Optional non-nil NO-REFRESH implies to retrieve only from cache
+if `util/org-use-headings-cache' is non-nil."
   ;; check mod times of buffers or files
   ;; If updated, add to cache
   ;; Search only in entry cache
@@ -1977,6 +1992,9 @@ offered as options.
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
 
+The headings are cached and updated when one of the files in
+`util/org-collect-headings-files' is modified.
+
 See also, `util/org-collect-headings-subr' and
 `util/org-collected-headings'."
   (interactive)
@@ -2105,6 +2123,8 @@ cache on buffer modification."
 See `util/org-collect-duplicate-headings' for details.  `defun'
 doesn't work when passing references to headings and dups for
 some reason."
+  (declare (debug (symbolp heading symbolp pos listp headings listp dups
+                           listp strings symbolp predicate symbolp ignore-case symbolp test)))
   `(let ((item (cons heading pos))
          (check (if ignore-case (downcase heading) heading)))
      (if predicate
@@ -2126,14 +2146,35 @@ some reason."
              (push old-heading dups))
            (push item dups))))))
 
-(defvar util/org-helm-use-headings-cache t
+(defmacro util/org-collect-duplicate-subr-other (item check headings dups strings predicate ignore-case test)
+  "Subroutine for `util/org-collect-duplicate-headings'.
+See `util/org-collect-duplicate-headings' for details.  `defun'
+doesn't work when passing references to headings and dups for
+some reason."
+  `(if predicate
+       (when (funcall predicate check)
+         (push item headings)
+         (push check strings)
+         (when (> (cl-count check strings :test test) 1)
+           (let* ((old-pos (cl-position check (reverse strings) :test test))
+                  (old-heading (nth old-pos (reverse headings))))
+             (unless (cl-member old-heading dups :test test)
+               (push old-heading dups)))
+           (push item dups)))
+     (push item headings)
+     (push check strings)
+     (when (> (cl-count check strings :test test) 1)
+       (let* ((old-pos (cl-position check (reverse strings) :test test))
+              (old-heading (nth old-pos (reverse headings))))
+         (unless (cl-member old-heading dups :test test)
+           (push old-heading dups))
+         (push item dups)))))
+
+(defvar util/org-use-headings-cache t
   "Whether to use headings from `util/org-headings-cache'.
 Cache is returned from `util/org-collected-headings' and is
 auto updated if the file has changed on disk.  See
 `util/org-collected-headings'.")
-
-(defvar util/org-duplicate-headings nil
-  "Global variable to easily access duplicate headings found in buffer.")
 
 ;; TODO: match headings also which differ in at most 2 words
 ;; TODO: match headings in which one is substring of other
@@ -2146,7 +2187,7 @@ With optional non-nil IGNORE-CASE, ignore case while searching.
 Optional TEST is which test function to use for `cl-count'.
 Defaults to `equal'."
   (let* ((test (or test 'equal))
-         (in-cache (when util/org-helm-use-headings-cache
+         (in-cache (when util/org-use-headings-cache
                      (member (buffer-name) (a-keys (util/org-collected-headings
                                                     #'util/org-default-heading-filter-p
                                                     (buffer-name))))))
@@ -2166,117 +2207,67 @@ Defaults to `equal'."
                  (pos (org-element-property :begin el)))
             (util/org-collect-duplicate-subr heading pos headings dups strings
                                              predicate ignore-case test)))))
-    (setq util/org-duplicate-headings
-          (sort dups (lambda (x y) (string-greaterp (car y) (car x)))))
-    util/org-duplicate-headings))
+    (sort dups (lambda (x y) (string-greaterp (car y) (car x))))))
 
-(defun util/org-helm-show (char)
-  "Show the org entry including property block at point CHAR."
-  (interactive)
-  (goto-char char)
-  (recenter-top-bottom)
-  (org-show-entry)
-  (save-excursion
-    (let ((bounds (org-get-property-block)))
-      (when bounds
-        ;; HACK (car bounds) gives node-property which org complains is not a drawer
-        (goto-char (- (car bounds) 1))
-        (org-hide-drawer-toggle)))))
+(defun util/org-collect-duplicate-headings-buffers (buffers &optional predicate ignore-case)
+  "Collect duplicate headings from multiple org buffers.
 
-(defun util/org-helm-delete (&rest args)
-  "Cut the subtree at point in current helm buffer."
-  (interactive)
-  (with-helm-current-buffer
-    (if (> (util/org-count-subtree-children) 0)
-        (message "Cannot delete node with children")
-      (org-copy-subtree nil t))))
+BUFFERS is a list of org buffers on which to operate.
 
-(defun util/org-helm-show-outline (&rest args)
-  "Print the outline path for heading at point in helm"
-  (interactive)
-  (with-helm-current-buffer
-    (message (org-format-outline-path (org-get-outline-path)))))
-
-(defun util/org-helm-copy-persistent ()
-  (interactive)
-  (with-helm-alive-p
-    (helm-set-attr 'copy-link-to-entry '(util/org-helm-copy-link-to-entry . never-split))
-    (helm-execute-persistent-action 'copy-link-to-entry)))
-(put 'util/org-helm-copy-persistent 'helm-only t)
-
-(defun util/org-helm-show-outline-persistent ()
-  (interactive)
-  (with-helm-alive-p
-    (helm-set-attr 'copy-link-to-entry '(util/org-helm-copy-link-to-entry . never-split))
-    (helm-execute-persistent-action 'copy-link-to-entry)))
-(put 'util/org-helm-copy-persistent 'helm-only t)
-
-
-;; TODO: If they're in the same subtree, just delete one of them
-;; TODO: Subtract the number of characters from each POS after POINT from DUPS
-;; TODO: Don't delete self.
-(defun util/org-helm-replace-heading-as-list-item (&rest args)
-  "Delete a duplicate org heading at point and insert a link to original.
-Inserts a link to the first org heading in
-`util/org-duplicate-headings'.  `util/org-duplicate-headings' is
-set and returned by `util/org-collect-duplicate-headings'.  See
-that function for implementation details."
-  (interactive "P")
-  (with-helm-current-buffer
-    (let* ((case-fold-search t)
-           (heading (org-get-heading t t t t))
-           (first (-first-item
-                   ;; NOTE: Actually the duplicates depend on the predicate
-                   ;;       While here I'm just doing a `string-match-p'
-                   (-filter (lambda (x) (string-match-p (car x) heading))
-                            util/org-duplicate-headings)))
-           (children (util/org-count-subtree-children)))
-      (cond ((> children 0)
-             (message "Cannot delete node with children"))
-            ((eq (point) (cdr first))
-             (message "Cannot delete first heading"))
-            (t
-             (org-copy-subtree nil t)
-             (outline-up-heading 1 t)
-             (org-end-of-meta-data)
-             (open-line 1)
-             (org-indent-line)
-             (let* ((instr (format "- [[%s::*%s][%s]]" (buffer-file-name) (car first) (car first)))
-                    (inslen (1+ (length instr)))
-                    (pt (point))
-                    (offset (+ (length org-subtree-clip) inslen)))
-               (insert instr)
-               (goto-char (point))
-               (outline-up-heading 1)
-               ;; Call helm again with different sources
-               ;; TODO: This is broken:
-               ;;       1. The positions post update are not correct
-               ;;       2. Need to update sources correctly
-               ;; (helm :sources (helm-build-sync-source "Duplicate headings"
-               ;;                  :candidates (lambda ()
-               ;;                                (with-helm-current-buffer
-               ;;                                  (-keep (lambda (x)
-               ;;                                           (when (not (string-match-p (car x) heading))
-               ;;                                             (if (> (cdr x) pt)
-               ;;                                                 (cons (car x) (- (cdr x) offset))
-               ;;                                               x)))
-               ;;                                         util/org-duplicate-headings)))
-               ;;                  :follow 1
-               ;;                  :action 'util/org-helm-show-dup-actions
-               ;;                  :keymap util/helm-org-map)))
-               ))))))
+With optional boolean function PREDICATE, collect those which
+only satisfy it.
+With optional non-nil IGNORE-CASE, ignore case while searching.
+Optional TEST is which test function to use for `cl-count'.
+Defaults to `equal'."
+  (let* ((test #'equal) ; (lambda (x y) (equal (butlast (split-string x)) (butlast (split-string (car y)))))
+         (in-cache (when util/org-use-headings-cache
+                     (a-keys (util/org-collected-headings
+                              #'util/org-default-heading-filter-p))))
+         headings dups strings)
+    (seq-do
+     (lambda (buf)
+       (with-current-buffer buf
+         (let ((bufname (buffer-name buf)))
+           (if (member bufname in-cache)
+               (let ((cache (a-get util/org-collect-headings-cache bufname)))
+                 (dolist (el cache)
+                   (let* ((heading (concat (car el) " " bufname))
+                          (pos (-last-item el))
+                          (item (list heading pos bufname))
+                          (check (if ignore-case (downcase (car el))
+                                   (car el))))
+                     (util/org-collect-duplicate-subr-other item check headings dups strings
+                                                            predicate ignore-case test))))
+             (save-excursion
+               (goto-char (point-max))
+               (while (re-search-backward org-complex-heading-regexp nil t)
+                 (let* ((el (org-element-at-point))
+                        (heading (org-element-property :title el))
+                        (pos (org-element-property :begin el))
+                        (item `(heading . ,(list pos bufname)))
+                          (check (if ignore-case (downcase (car el))
+                                   (car el))))
+                   (util/org-collect-duplicate-subr-other item check headings dups strings
+                                                          predicate ignore-case test))))))
+         ;; (setq offset (- (length dups) offset))
+         ;; (setq copies (-concat (mapcar (lambda (x) `(,(concat (car x) " " (buffer-name buf)) . ,(list (cdr x) buf)))
+         ;;                               (-slice dups 0 offset))
+         ;;                       copies))
+         ))
+     buffers)
+    (sort dups (lambda (x y) (string-greaterp (car y) (car x))))))
 
 ;; TODO: Perhaps can add a timer to warn user if copying link after long time so
 ;;       that on first copy `util/org-copy-link-append' should be nil. Or the
 ;;       timer could set `util/org-copy-link-append' automatically to nil.
 (defvar util/org-copy-link-append nil)
-(defun util/org-copy-link-to-heading (&optional prefix-arg)
+(defun util/org-copy-link-to-heading (&optional pref-arg)
   "Copy link to current heading.
 
-Prefer custom-id but default to fuzzy link.  Optional PREFIX-ARG
+Prefer custom-id but default to fuzzy link.  Optional PREF-ARG
 is for checking interactive usage."
   (interactive "p")
-  (when (eq prefix-arg 4)
+  (when (eq pref-arg 4)
     (setq util/org-copy-link-append nil))
   (let* ((case-fold-search t)
          (heading (org-get-heading t t t t))
@@ -2285,7 +2276,7 @@ is for checking interactive usage."
          (option (if custom-id (concat "#" custom-id) (concat "*" heading)))
          (filename (buffer-file-name))
          (link (format "[[%s::%s][%s]]" filename option heading)))
-    (if prefix-arg
+    (if pref-arg
         (if util/org-copy-link-append
             (progn (kill-append (concat "\n" link) nil)
                    (message "Appened link %s to last kill" heading))
@@ -2293,52 +2284,6 @@ is for checking interactive usage."
           (setq util/org-copy-link-append t)
           (message "Killed new link to %s" heading))
       link)))
-
-(defvar util/org-helm-kill-append nil)
-
-(defun util/org-helm-copy-link-to-entry (&rest args)
-  "Copy the link to current entry in helm buffer.
-This doesn't store the link but copies it to the kill ring.  In
-case multiple links are copied in the same session they are
-appended to the kill ring separated with a newline."
-  (interactive "P")
-  (with-helm-current-buffer
-    (let ((link (util/org-copy-link-to-heading)))
-      (if util/org-helm-kill-append
-          (kill-append (concat "\n" link) nil)
-        (kill-new link)
-        (setq util/org-helm-kill-append t)))))
-
-(defvar util/org-helm-show-dup-actions
-  (helm-make-actions
-   "Show Entry" 'util/org-helm-show
-   "Delete Entry" 'util/org-helm-delete
-   "Show Entry Path" 'util/org-helm-show-outline
-   "Replace with link" 'util/org-helm-replace-heading-as-list-item))
-
-(defvar util/helm-org-show-dup-map
-  (let ((new-map (copy-keymap helm-map)))
-    (define-key new-map (kbd "C-k") 'util/org-helm-delete)
-    (define-key new-map (kbd "C-l") 'util/org-helm-show-outline)
-    (define-key new-map (kbd "C-R") 'util/org-helm-replace-heading-as-list-item)
-    new-map)
-  "Keymap for `helm-org-rifle'.")
-
-;; TODO: Should the names be util/org-helm-* or util/helm-org-* ?
-(defun util/org-helm-show-duplicate-headings (&optional pred ignore-case)
-  "Show duplicate headings in an org buffer with `helm'.
-With optional predicate PRED, show only those which satisfy the
-predicate.  With optional non-nil IGNORE-CASE, ignore case while
-searching."
-  (interactive)
-  (util/with-org-mode
-   (helm :sources (helm-build-sync-source "Duplicate headings"
-                    :candidates (lambda ()
-                                  (with-helm-current-buffer
-                                    (util/org-collect-duplicate-headings pred ignore-case)))
-                    :follow 1
-                    :action 'util/org-helm-show-dup-actions
-                    :keymap util/helm-org-show-dup-map))))
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.
@@ -2375,68 +2320,6 @@ entries which satisfy it."
                       (push old-heading dups))
                     (push item dups)))))))
     dups))
-
-
-(defun util/org-helm-show-duplicate-customids (&optional pred)
-  (interactive)
-  (util/with-org-mode
-   (helm :sources (helm-build-sync-source "Duplicate Custom IDs"
-                    :candidates (lambda ()
-                                  (with-helm-current-buffer
-                                    (util/org-collect-duplicate-customids pred)))
-                    :follow 1
-                    :action 'util/org-helm-show-dup-actions
-                    :keymap util/helm-org-show-dup-map))))
-
-(defun util/org-helm-headings-subr (&optional pred)
-  "Return all headings with position satisfying PRED.
-
-Primarily a subroutine for `util/org-helm-headings'.  Optional
-PRED defaults to `identity'."
-  (let ((in-cache (when util/org-helm-use-headings-cache
-                    (member (buffer-name) (a-keys (util/org-collected-headings
-                                                   #'util/org-default-heading-filter-p
-                                                   (buffer-name))))))
-        (pred (or pred #'identity))
-        headings)
-    (if in-cache
-        (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
-          (setq headings (-filter #'identity
-                                  (mapcar (lambda (x) (when (funcall pred (car x))
-                                                        (cons (car x) (-last-item x))))
-                                          cache))))
-      (save-excursion
-        (goto-char (point-max))
-        (while (re-search-backward org-complex-heading-regexp nil t)
-          (let* ((el (org-element-at-point))
-                 (heading (org-element-property :title el))
-                 (pos (org-element-property :begin el)))
-            (when (funcall pred heading)
-              (push (cons heading pos) headings))))))
-    headings))
-
-(defvar util/org-helm-headings-map
-  (let ((new-map (copy-keymap helm-map)))
-    (define-key new-map (kbd "C-w") 'util/org-helm-copy-link-to-entry)
-    new-map)
-  "Keymap for `util/org-helm-headings'.")
-
-(defun util/org-helm-headings (&optional pred)
-  "Navigate through headings in an org buffer with `helm'.
-With optional predicate PRED, show only those headings which satisfy the
-predicate."
-  (interactive)
-  (util/with-org-mode
-   (setq util/org-helm-kill-append nil)
-   (helm :sources (helm-build-sync-source "Org Headings"
-                    :candidates (lambda ()
-                                  (with-helm-current-buffer
-                                    (util/org-helm-headings-subr pred)))
-                    :follow 1
-                    :action (helm-make-actions
-                             "Show Entry" 'util/org-helm-show
-                             "Copy Link to Entry" 'util/org-helm-copy-persistent)
-                    :keymap util/org-helm-headings-map))))
 
 (defun util/insert-heading-from-url (&optional with-header)
   "Fetch the title from an optional URL.
