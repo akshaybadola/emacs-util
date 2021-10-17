@@ -5,8 +5,8 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 12 October 2021 16:58:21 PM IST>
-;; Keywords:	helm, org
+;; Time-stamp:	<Thursday 14 October 2021 18:50:15 PM IST>
+;; Keywords:	helm, org, utility
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -27,6 +27,10 @@
 ;;; Commentary:
 ;;
 ;; Some helm functions for org mode.
+;;
+;; The utility functions I've used begin with `util/' prefix and I've kept the
+;; convention going here. You'll have to load them as "(require 'util/helm-org util-helm-org)"
+;; for it to load correctly; notice the file name in the end.
 
 ;;; Code:
 

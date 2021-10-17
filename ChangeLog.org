@@ -73,3 +73,7 @@
 ** [2021-10-12 Tue 17:01]
    - Separted helm functions to ~util-helm-org.el~.
    - Added some pure spec declarations.
+
+** [2021-10-17 Sun 21:09]
+   - Separated org functions to ~util-org.el~.
+
