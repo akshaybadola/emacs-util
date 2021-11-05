@@ -6,7 +6,7 @@
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Thursday 14 October 2021 18:50:15 PM IST>
-;; Keywords:	helm, org, utility
+;; Keywords:	org, utility
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -78,7 +78,7 @@ Used by `util/org-execute-simple-regexp-search'.")
 
 (defmacro util/with-org-mode (&rest body)
   "Call form `body' only if major-mode is `org-mode'."
-  (declare (debug (body)))
+  ;; (declare (debug (form body)))
   `(util/with-check-mode
     'org-mode nil
     ,@body))
@@ -274,29 +274,42 @@ suffices.  This function does just that.  Adapated from
     ;; return t to indicate that the search is done.
     t)))
 
-(defvar util/org-execute-search-prefix-arg-behaviour nil
-  "Behaviour of \\[universal-argument] in `util/org-execute-org-heading-search-*' functions.
-For now only 'pdf is used and opens the PDF_FILE from properties.")
+(defvar util/org-execute-search-prefix-arg-behaviour-alist nil
+  "`util/org-execute-org-heading-search-*' functions to call for \\[universal-argument].
+
+This should be an alist of type '(number . function), where the
+number corresponds to the prefix argument converted to integer.")
 
 (defvar util/org-execute-search-ignore-case t
   "Ignore case for headings search.")
 
-(defun util/org-execute-search-funcall (args)
-  "Call appropriate function according for org search.
-The value of `util/org-execute-search-prefix-arg-behaviour'
-determines which function to call to value of.  ARGS is a plist
-of arguments."
-  (pcase util/org-execute-search-prefix-arg-behaviour
-    ('pdf (util/org-execute-search-find-pdf-file (plist-get args :pdf-file)))
-    (_ nil)))
 
-(defun util/org-execute-search-find-pdf-file (pdf-file)
-  (when (and pdf-file (f-exists? pdf-file))
-    (if (string-suffix-p ".djvu" pdf-file)
-        (let ((async-shell-command-buffer 'new-buffer)
-              (async-shell-command-display-buffer nil))
-          (async-shell-command (format "evince \"%s\"" pdf-file)))
-      (find-file pdf-file))))
+;; FIXME: This is a bad hack. This should be fixed from `org-link-open'
+(defun util/org-execute-search-other-window (args)
+  "Execute search in other window."
+  (let ((buf (plist-get args :buffer))
+        (pt (plist-get args :pt))
+        (orig-mark (car org-mark-ring))
+        (win (util/get-or-create-window-on-side)))
+    (set-window-buffer win buf)
+    (goto-char pt)
+    (setq win (util/get-or-create-window-on-side))
+    (set-window-buffer win (marker-buffer orig-mark))))
+
+(defun util/org-execute-search-find-pdf-file (args)
+  "Open PDF or DJVU file for link if it exists."
+  (let ((pdf-file (plist-get args :pdf-file))
+        (pt (plist-get args :pt)))
+    (if (and pdf-file (f-exists? pdf-file))
+        (if (string-suffix-p ".djvu" pdf-file)
+            (let ((async-shell-command-buffer 'new-buffer)
+                  (async-shell-command-display-buffer nil))
+              (async-shell-command (format "evince \"%s\"" pdf-file)))
+          (find-file pdf-file))
+      (message "No pdf file for link")
+      (goto-char pt)
+      (beginning-of-line)
+      (org-reveal))))
 
 (defun util/org-execute-search-heading-length-subr (words comment-re cookie-re)
   "Return length of intersection of WORDS and org heading at point.
@@ -316,6 +329,10 @@ See the above function for COMMENT-RE and COOKIE-RE."
                                   (split-string))))))
 
 ;; TODO: Maybe in case there are multiple matches, list all
+;;
+;; FIXME: While this functionality is correct, the behaviour that I want, that
+;;        is, for `C-u-C-u-C-o' to open the link from even same file in a
+;;        different window (which doesn't work right now)
 (defun util/org-execute-customid-or-max-heading-match-search (str)
   "Return match for either custom-id or org heading.
 If the link is for a custom-id then search for that else if it's
@@ -324,7 +341,7 @@ STR of org heading.  If heading contains less than 3 words, then
 an exact match is searched.
 
 After match, with non-nil \\[universal-argument], execute a function
- according to `util/org-execute-search-prefix-arg-behaviour'.
+ according to `util/org-execute-search-prefix-arg-behaviour-alist'.
 
 If a fuzzy heading search is performed, then the case match
 behaviour is controlled by `util/org-execute-search-ignore-case'."
@@ -373,18 +390,18 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
         (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
                (pdf-prop (org-entry-get pt "PDF_FILE"))
                (pdf-file (when (and pdf-prop (string-match util/org-file-link-re pdf-prop))
-                           (match-string 1 pdf-prop))))
-          (if current-prefix-arg
-              ;; NOTE: Call an appropriate function if prefix arg
-              (if pdf-file
-                  (util/org-execute-search-funcall `(:pt ,pt :pdf-file ,pdf-file))
-                (message "No pdf file for link")
-                (goto-char pt)
-                (beginning-of-line)
-                (org-reveal))
-            (goto-char pt)
-            (beginning-of-line)
-            (org-reveal))))
+                           (match-string 1 pdf-prop)))
+               (parg (pcase current-prefix-arg
+                       ((and (pred (listp)) x) (car x))
+                       ((and (pred (integerp)) x) x)
+                       (_ nil)))
+               (func (a-get util/org-execute-search-prefix-arg-behaviour-alist parg)))
+          (when pt
+            (if func
+                (funcall func `(:buffer ,buf :arg ,parg :pt ,pt :pdf-file ,pdf-file))
+              (goto-char pt)
+              (beginning-of-line)
+              (org-reveal)))))
       matches)))
 
 (defun util/org-remove-all-drawers (&optional buf)
@@ -593,7 +610,8 @@ predicate."
 ;;       - Decouple cache from functions so same function
 ;;         can be used with multiple caches
 (defvar util/org-collect-headings-cache nil
-  "Alist of collected headings cache.")
+  "Alist of collected headings cache.
+The cache is of the form `(,heading ,author ,buf ,custom-id ,pos).")
 (defvar util/org-collect-headings-files nil
   "List of files from which to collect headings.")
 (defvar util/org-collect-files-modtimes nil
@@ -732,7 +750,7 @@ When in org mode, delete the link text also."
         (message "Could not delete the link text")))))
 
 (defun util/org-move-file-under-point ()
-  "Move file for link under point.
+  "Move file for a file link under point on the disk.
 Update the org link also when in org mode."
   (interactive)
   (pcase-let* ((link (get-text-property (point) 'htmlize-link))
@@ -945,6 +963,7 @@ See also, `util/org-collect-headings-subr' and
                    (insert (format "[[%s#%s][%s]]" file custom-id (funcall clip-func heading)))
                  (insert (format "[[%s*%s][%s]]" file heading (funcall clip-func heading)))))))))
 
+;; TODO: these two should be `ref-man' functions
 (defun util/org-insert-citation-to-heading ()
   "Insert a citation to a heading.
 Call `util/org-insert-link-to-heading' so that the description of
@@ -960,6 +979,22 @@ Like `util/org-insert-citation-to-heading' except doesn't rebuild
 cache on buffer modification."
   (interactive)
   (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t t))
+
+(defun util/org-filter-from-headings-cache (cache-name predicate &optional file-or-buffer)
+  "Filter headings from `util/org-collect-headings-cache' with  CACHE-NAME.
+
+The PREDICATE is run on each entry of the cache.
+
+Optionally search only in entries for FILE-OR-BUFFER.
+FILE-OR-BUFFER must be in `util/org-collect-buffers'."
+  (let ((cache (if file-or-buffer
+                   (a-get util/org-collect-headings-cache
+                          (pcase (or (get-buffer file-or-buffer)
+                                     (and (f-exists? file-or-buffer)
+                                          (find-file-noselect file-or-buffer)))
+                            ((and bufname) bufname)))
+                 util/org-collect-headings-cache)))
+    (-filter #'predicate (-concat (a-vals util/org-collect-headings-cache)))))
 
 (defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
   "Subroutine for `util/org-collect-duplicate-headings'.

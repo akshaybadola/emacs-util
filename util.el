@@ -5,10 +5,11 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 09 September 2021 01:55:13 AM IST>
-;; Keywords:	utility
-;; Version:     0.3.7
-;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0") (bind-key "2.4") (find-file-in-project "6.0.6") (tern "0.0.1"))
+;; Time-stamp:	<Tuesday 26 October 2021 04:57:45 AM IST>
+;; Keywords:	utility, convenience, emacs-lisp, org, helm
+;; Version:     0.3.8
+;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0")
+;;                    (bind-key "2.4") (find-file-in-project "6.0.6"))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -45,7 +46,6 @@
 (require 'ibuffer)
 (require 'imenu)
 (require 'package)
-(require 'tern)
 (require 'time-stamp)
 
 (defvar util/insert-heading-python-executable "/usr/bin/python"
@@ -119,6 +119,10 @@ Sum over N iterations."
        ,@body)
      (message "Mean runtime %.06f seconds over %s runs"
               (/ (float-time (time-since time)) ,n) ,n)))
+
+(defun util/check-mode (mode msg-prefix)
+  (unless (eq major-mode mode)
+    (user-error "%sNot in %s" msg-prefix mode)))
 
 (defun util/insert (&rest args)
   "Insert ARGS as strings."
@@ -822,39 +826,6 @@ newlines from the end also."
                      (window-in-direction 'left orig-win))
                     (t (split-window-horizontally)))))
     win))
-
-(defun util/tern-find-definition-other-window (&optional prompt-var)
-"Goto definition of symbol at point in other window.
-If optional PROMPT-VAR is given or tern can't figure out the
-symbol, prompt the user for the symbol."
-  (interactive)
-  (let ((varname (and (or prompt-var (not (tern-at-interesting-expression)))
-                      (read-from-minibuffer "Variable: "))))
-    (push-mark)
-    (tern-run-query #'util/tern-show-definition
-                    `((type . "definition") (variable . ,varname)) (point))))
-
-(defun util/tern-show-definition (data)
-  (let* ((file (cdr (assq 'file data)))
-         (found (and file (setf file (expand-file-name (cdr (assq 'file data)) (tern-project-dir)))
-                     (tern-find-position file data))))
-    (if found
-        (progn
-          (push (cons (buffer-file-name) (point)) tern-find-definition-stack)
-          (let ((too-long (nthcdr 20 tern-find-definition-stack)))
-            (when too-long (setf (cdr too-long) nil)))
-          (let ((buf (current-buffer))
-                ;; CHECK: Why isn't this used?
-                ;; (win (util/get-or-create-window-on-side))
-                )
-            (with-current-buffer buf
-              (setf tern-last-point-pos (point)))
-            (find-file-other-window file)
-            (goto-char (min found (point-max)))))
-      (let ((url (cdr (assq 'url data))))
-        (if url
-            (browse-url url)
-          (tern-message "No definition found."))))))
 
 ;; FIXME: WTF does this even do?
 (defun util/get-links-from-region ()

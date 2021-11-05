@@ -36,8 +36,8 @@
 
 (require 'org)
 (require 'helm)
-
 (require 'util)
+(require 'util/org "util-org")
 
 (defvar util/helm-org-duplicate-headings nil
   "Global variable to easily access duplicate headings found in buffer.")
@@ -177,7 +177,7 @@ appended to the kill ring separated with a newline."
 
 (defvar util/helm-org-show-dup-actions
   (helm-make-actions
-   "Show Entry" 'util/org-helm-show
+   "Show Entry" 'util/helm-org-show
    "Delete Entry" 'util/helm-org-delete
    "Show Entry Path" 'util/helm-org-show-outline
    "Replace with link" 'util/helm-org-replace-heading-as-list-item)
@@ -209,7 +209,7 @@ searching."
 
 (defvar util/helm-org-show-dup-files-actions
   (helm-make-actions
-   "Show Entry" 'util/org-helm-show-with-path
+   "Show Entry" 'util/helm-org-show-with-path
    "Delete Entry" 'util/helm-org-delete
    "Show Entry Path" 'util/helm-org-show-outline
    "Replace with link" 'util/helm-org-replace-heading-as-list-item)

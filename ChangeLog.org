@@ -77,3 +77,13 @@
 ** [2021-10-17 Sun 21:09]
    - Separated org functions to ~util-org.el~.
 
+** [2021-11-05 Fri 09:06]
+   - Added ~util/org-execute-search-other-window~ and
+     ~util/org-execute-search-find-pdf-file~
+   - ~util/org-execute-search-prefix-arg-behaviour~ is now
+     ~util/org-execute-search-prefix-arg-behaviour-alist~
+   - Added ~util/org-filter-from-headings-cache~
+   - Added ~util/check-mode~ as still haven't figured out how to instrument the
+     macro correctly.
+   - Removed the tern function
+
