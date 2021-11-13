@@ -749,10 +749,44 @@ When in org mode, delete the link text also."
           (delete-region beg end)
         (message "Could not delete the link text")))))
 
-(defun util/org-move-file-under-point ()
+(defun util/org-rename-file-under-point (old new &optional name-only)
+  "Rename the file under point from OLD to given NAME.
+Update the org link also when in org mode.
+
+When optional NAME-ONLY is non-nil, the link description is
+contracted to file name only."
+  (save-excursion
+    (when (derived-mode-p 'org-mode)
+      (let ((beg (cond ((or (looking-back "\\[\\[\\(.+?\\)" 1)
+                            (looking-at "\\[\\[\\(.+?\\)"))
+                        (match-beginning 0))
+                       ((looking-at "\\(.+?\\)]]")
+                        (- (match-beginning 0) 2))
+                       (t nil)))
+            end desc)
+        (cond (beg
+               (when (looking-at "\\(.+?\\)\\]]")
+                 (setq end (match-end 0))
+                 (setq desc (substring-no-properties
+                             (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1))))
+                 (when name-only
+                   (setq desc (f-filename desc))))
+               (delete-region beg end)
+               (goto-char beg)
+               (if (string= old new)
+                   (message "New path is same as old path %s" old)
+                 (rename-file old new)
+                 (message "Renamed to %s" new))
+               (if (and desc (not (string= desc old)))
+                   (insert (format "[[%s][%s]]" new desc))
+                 (insert (format "[[%s]]" new))))
+              (t (user-error "Not at an org file link")))))))
+
+;; TODO: Keep old name in some undo history, perhaps in a hash table
+(defun util/org-move-file-under-point (call-method &optional newname)
   "Move file for a file link under point on the disk.
 Update the org link also when in org mode."
-  (interactive)
+  (interactive "p")
   (pcase-let* ((link (get-text-property (point) 'htmlize-link))
                (context (org-element-context))
                (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
@@ -766,39 +800,31 @@ Update the org link also when in org mode."
                                             (string-remove-suffix "/" uri)
                                           (f-dirname uri))
                                         "/"))))
-               (newname))
+               (should-rename))
     (if (not uri)
         (message "Nothing to do here")
-      (setq newname (f-expand (read-file-name "New name for file: " dir dir)))
+      (if newname
+          (y-or-n-p (format "Move file to %s? " newname))
+        (setq newname (f-expand (read-file-name "New name for file: " dir dir))))
       (let ((src-dir (f-directory? uri))
             (target-exists (f-exists? newname))
             (target-dir (f-directory? newname)))
         (cond ((and src-dir target-exists)
-               (message "Cannot move source directory if target exists"))
+               (message "Cannot move source directory if target exists")
+               (setq should-rename nil))
               ;; NOTE: move to target dir if target is a directory
-              (target-dir
-               (message "Cannot move to target if it is a directory"))
+              ((and src-dir target-dir)
+               (message "Cannot move to target if both source and target are directories.")
+               (setq should-rename nil))
+              ((and target-dir (f-file? uri))
+               (setq newname (f-join newname (f-filename uri)))
+               (setq should-rename t))
               (target-exists
-               (message "maybe overwrite"))
-              (t
-               ;; (rename-file uri newname)
-               (save-excursion
-                 (when (derived-mode-p 'org-mode)
-                   (let ((beg (point))
-                         end desc)
-                     (when (looking-back "\\[\\[\\(.+?\\)" 1)
-                       (setq beg (match-beginning 0))
-                       (goto-char beg))
-                     (when (looking-at "\\(.+?\\)\\]]")
-                       (setq end (match-end 0))
-                       (setq desc (substring-no-properties
-                                   (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1)))))
-                     (delete-region beg end)
-                     (goto-char beg)
-                     (if (and desc (not (string= desc uri)))
-                         (insert (format "[[%s][%s]]" newname desc))
-                       (insert (format "[[%s]]" newname)))
-                     (message "Renamed to %s" newname))))))))))
+               (message "maybe overwrite")
+               (setq should-rename nil))
+              (t (setq should-rename t)))
+        (when should-rename
+          (util/org-rename-file-under-point uri newname (= call-method 4)))))))
 
 (defun util/org-get-tree-prop (prop &optional heading)
   "Return point up the tree checking for property PROP.
@@ -994,7 +1020,8 @@ FILE-OR-BUFFER must be in `util/org-collect-buffers'."
                                           (find-file-noselect file-or-buffer)))
                             ((and bufname) bufname)))
                  util/org-collect-headings-cache)))
-    (-filter #'predicate (-concat (a-vals util/org-collect-headings-cache)))))
+    (-filter (lambda (x) (funcall predicate x))
+             (-concat (a-vals util/org-collect-headings-cache)))))
 
 (defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
   "Subroutine for `util/org-collect-duplicate-headings'.

@@ -87,3 +87,9 @@
      macro correctly.
    - Removed the tern function
 
+** [2021-11-13 Sat 10:11]
+   - Fixed a couple of incorrect helm-org symbols
+   - Finished implementation for ~util/org-move-file-under-point~
+   - Fixed incorrect predicate call in ~util/org-filter-from-headings-cache~
+   - Added sort by installation date in ~util/package-top-level-packages~
+

@@ -249,7 +249,7 @@ Optional PRED is used to filter the headings."
 (defun util/helm-org-headings-subr (&optional pred)
   "Return all headings with position satisfying PRED.
 
-Primarily a subroutine for `util/org-helm-headings'.  Optional
+Primarily a subroutine for `util/helm-org-headings'.  Optional
 PRED defaults to `identity'."
   (let ((in-cache (member (buffer-name)
                           (a-keys (util/org-collected-headings
@@ -277,7 +277,7 @@ PRED defaults to `identity'."
   (let ((new-map (copy-keymap helm-map)))
     (define-key new-map (kbd "C-w") 'util/helm-org-copy-link-to-entry)
     new-map)
-  "Keymap for `util/org-helm-headings'.")
+  "Keymap for `util/helm-org-headings'.")
 
 (defun util/helm-org-headings (&optional pred)
   "Navigate through headings in an org buffer with `helm'.
@@ -292,7 +292,7 @@ predicate."
                                     (util/helm-org-headings-subr pred)))
                     :follow 1
                     :action (helm-make-actions
-                             "Show Entry" 'util/org-helm-show
+                             "Show Entry" 'util/helm-org-show
                              "Copy Link to Entry" 'util/helm-org-copy-persistent)
                     :keymap util/helm-org-headings-map))))
 
@@ -305,7 +305,7 @@ Optional PRED is used to filter the headings."
                                   (util/helm-org-headings-subr pred)))
                   :follow 1
                   :action (helm-make-actions
-                           "Show Entry" 'util/org-helm-show
+                           "Show Entry" 'util/helm-org-show
                            "Copy Link to Entry" 'util/helm-org-copy-persistent)
                   :keymap util/helm-org-headings-map)))
     (helm-set-attr 'buffer buf source)

@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Tuesday 26 October 2021 04:57:45 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.3.8
+;; Version:     0.3.9
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0")
 ;;                    (bind-key "2.4") (find-file-in-project "6.0.6"))
 
@@ -505,11 +505,27 @@ argument ALL, return dependent packages from archives also (not implemented)."
                                        (when (member name req-names) x)))
                                    reqs)))))
 
-(defun util/package-top-level-packages ()
-  "Return list of packages which are not a dependency."
-  (-non-nil (mapcar (lambda (x)
+(defun util/package-top-level-packages (&optional order)
+  "Return list of packages which are not a dependency of any other package.
+Optional ORDER controls the ordering of the returned list.
+Default isn't ordered but can be specified as
+'(time|name|installed . asc|desc)."
+  (let ((packages (-non-nil (mapcar (lambda (x)
                       (unless (util/package-required-by (car x)) (car x)))
-                    package-alist)))
+                                    package-alist))))
+    (pcase-let ((`(,ord . ,asc) order))
+      (pcase ord
+        ('installed (mapcar
+                     #'car
+                     (-sort (lambda (y z) (time-less-p (cdr y) (cdr z)))
+                            (mapcar
+                             (lambda (pkg)
+                               `(,pkg . ,(file-attribute-modification-time
+                                          (file-attributes
+                                           (-first (lambda (x) (string-match-p ".elc$" x))
+                                                   (f-files (plist-get (util/package-info pkg) :directory)))))))
+                             packages))))
+        (t (reverse packages))))))
 
 (defun util/package-version (lib)
   "Return the library version for LIB.
