@@ -98,6 +98,7 @@ POS is a list of '(point buffer)."
     (helm-execute-persistent-action 'copy-link-to-entry)))
 (put 'util/helm-org-copy-persistent 'helm-only t)
 
+;; TODO: This is just same as the earlier function, LOL.
 (defun util/helm-org-show-outline-persistent ()
   "Show org heading keeping helm session."
   (interactive)
@@ -109,6 +110,9 @@ POS is a list of '(point buffer)."
 ;; TODO: If they're in the same subtree, just delete one of them
 ;; TODO: Subtract the number of characters from each POS after POINT from DUPS
 ;; TODO: Don't delete self.
+;; TODO: An issue is that the helm sources aren't dynamic. So effectively I have
+;;       to quit helm and restart session, which is annoying but not a
+;;       dealbreaker. Would like a solution though
 (defun util/helm-org-replace-heading-as-list-item (&rest args)
   "Delete a duplicate org heading at point and insert a link to original.
 Inserts a link to the first org heading in
@@ -202,7 +206,9 @@ searching."
    (helm :sources (helm-build-sync-source "Duplicate headings"
                     :candidates (lambda ()
                                   (with-helm-current-buffer
-                                    (util/org-collect-duplicate-headings pred ignore-case)))
+                                    (setq util/helm-org-duplicate-headings
+                                          (util/org-collect-duplicate-headings pred ignore-case))
+                                    util/helm-org-duplicate-headings))
                     :follow 1
                     :action 'util/helm-org-show-dup-actions
                     :keymap util/helm-org-show-dup-map))))

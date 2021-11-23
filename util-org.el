@@ -749,7 +749,7 @@ When in org mode, delete the link text also."
           (delete-region beg end)
         (message "Could not delete the link text")))))
 
-(defun util/org-rename-file-under-point (old new &optional name-only)
+(defun util/org-rename-file-under-point (old new &optional name-only quiet)
   "Rename the file under point from OLD to given NAME.
 Update the org link also when in org mode.
 
@@ -765,22 +765,28 @@ contracted to file name only."
                        (t nil)))
             end desc)
         (cond (beg
+               (goto-char beg)
                (when (looking-at "\\(.+?\\)\\]]")
                  (setq end (match-end 0))
                  (setq desc (substring-no-properties
                              (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1))))
-                 (when name-only
-                   (setq desc (f-filename desc))))
+                 (if name-only
+                     (setq desc (f-filename new))
+                   (setq desc (expand-file-name new))))
                (delete-region beg end)
-               (goto-char beg)
                (if (string= old new)
-                   (message "New path is same as old path %s" old)
+                   (unless quiet (message "New path is same as old path %s" old))
                  (rename-file old new)
-                 (message "Renamed to %s" new))
+                 (unless quiet (message "Renamed to %s" new)))
                (if (and desc (not (string= desc old)))
                    (insert (format "[[%s][%s]]" new desc))
                  (insert (format "[[%s]]" new))))
-              (t (user-error "Not at an org file link")))))))
+              (t (unless quiet (user-error "Not at an org file link"))))))))
+
+(defun util/org-shorten-link-description-to-file-name ()
+  (interactive)
+  (let ((uri (plist-get (get-text-property (point) 'htmlize-link) :uri)))
+    (util/org-rename-file-under-point uri uri t t)))
 
 ;; TODO: Keep old name in some undo history, perhaps in a hash table
 (defun util/org-move-file-under-point (call-method &optional newname)

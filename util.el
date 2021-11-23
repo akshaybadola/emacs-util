@@ -7,7 +7,7 @@
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Time-stamp:	<Tuesday 26 October 2021 04:57:45 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.3.9
+;; Version:     0.3.10
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0")
 ;;                    (bind-key "2.4") (find-file-in-project "6.0.6"))
 
