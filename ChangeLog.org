@@ -97,3 +97,8 @@
    - Fixed a small bug with ~util/org-rename-file-under-point~ which caused
      incorrect shortened names.
 
+** [2021-12-02 Thu 16:56]
+   - New subroutine ~util/org-execute-search-goto-point~ to goto point after
+     executing search
+   - Fixed a bug in full match in ~util/org-execute-customid-or-max-heading-match-search~
+     Cleaner implementation also.

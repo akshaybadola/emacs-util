@@ -296,20 +296,26 @@ number corresponds to the prefix argument converted to integer.")
     (setq win (util/get-or-create-window-on-side))
     (set-window-buffer win (marker-buffer orig-mark))))
 
+(defun util/org-execute-search-goto-point (pt)
+  (goto-char pt)
+  (beginning-of-line)
+  (org-reveal))
+
 (defun util/org-execute-search-find-pdf-file (args)
   "Open PDF or DJVU file for link if it exists."
   (let ((pdf-file (plist-get args :pdf-file))
         (pt (plist-get args :pt)))
-    (if (and pdf-file (f-exists? pdf-file))
-        (if (string-suffix-p ".djvu" pdf-file)
-            (let ((async-shell-command-buffer 'new-buffer)
-                  (async-shell-command-display-buffer nil))
-              (async-shell-command (format "evince \"%s\"" pdf-file)))
-          (find-file pdf-file))
+    (if pdf-file
+        (if (f-exists? pdf-file)
+            (if (string-suffix-p ".djvu" pdf-file)
+                (let ((async-shell-command-buffer 'new-buffer)
+                      (async-shell-command-display-buffer nil))
+                  (async-shell-command (format "evince \"%s\"" pdf-file)))
+              (find-file pdf-file))
+          (message "PDF file not found on disk")
+          (util/org-execute-search-goto-point pt))
       (message "No pdf file for link")
-      (goto-char pt)
-      (beginning-of-line)
-      (org-reveal))))
+      (util/org-execute-search-goto-point pt))))
 
 (defun util/org-execute-search-heading-length-subr (words comment-re cookie-re)
   "Return length of intersection of WORDS and org heading at point.
@@ -333,7 +339,7 @@ See the above function for COMMENT-RE and COOKIE-RE."
 ;; FIXME: While this functionality is correct, the behaviour that I want, that
 ;;        is, for `C-u-C-u-C-o' to open the link from even same file in a
 ;;        different window (which doesn't work right now)
-(defun util/org-execute-customid-or-max-heading-match-search (str)
+(defun util/org-execute-customid-or-max-heading-match-search (str &optional first-match full-match)
   "Return match for either custom-id or org heading.
 If the link is for a custom-id then search for that else if it's
 a fuzzy link then search for a match for minimum three words of
@@ -357,52 +363,60 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
                                  (0 t)
                                  (_ nil))
                            (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str))))
-           (title (if (< (length words) 3)
-                      (string-join words " ")
+           (title (if (or full-match (< (length words) 3))
+                      (regexp-quote (string-join words " "))
                     (concat (mapconcat #'regexp-quote (-take 3 words) ".+") ".*")))
            (title-re
             ;; NOTE: Changed from rx to format for compatibility reasons
             ;; (rx bol (+ "*") " "
             ;;            (opt (seq (regexp todo-comment-re) " "))
             ;;            (group (regexp title))
+            ;;            (opt (+ " ") ":" (+ any) ":")   ; tag regexp
             ;;            eol)
-            (format "^\\*+ \\(?:\\(?:%s\\) \\)?\\(%s\\)$" todo-comment-re title))
+            (format "^\\*+ \\(?:\\(?:%s\\) \\)?\\(%s\\)\\(?: +:.+:\\)?$"
+                    todo-comment-re title))
            (cookie-re "\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]")
            (comment-re org-comment-regexp)
            matches)
       (with-current-buffer buf
-        (save-excursion
-          (goto-char (point-min))
-          (if custom-id-re
-              (when (re-search-forward custom-id-re)
-                (org-reveal)
-                (push (list (util/org-execute-search-heading-length-subr
-                             words comment-re cookie-re)
-                            (progn (outline-back-to-heading) (point))
-                            (org-entry-get (point) "PDF_FILE"))
-                      matches))
-            (while (re-search-forward title-re nil t)
-              (push (list (util/org-execute-search-heading-length-subr
-                           words comment-re cookie-re)
-                          (point)
-                          (org-entry-get (point) "PDF_FILE"))
-                    matches))))
-        (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
-               (pdf-prop (org-entry-get pt "PDF_FILE"))
-               (pdf-file (when (and pdf-prop (string-match util/org-file-link-re pdf-prop))
-                           (match-string 1 pdf-prop)))
-               (parg (pcase current-prefix-arg
-                       ((and (pred (listp)) x) (car x))
-                       ((and (pred (integerp)) x) x)
-                       (_ nil)))
-               (func (a-get util/org-execute-search-prefix-arg-behaviour-alist parg)))
-          (when pt
-            (if func
-                (funcall func `(:buffer ,buf :arg ,parg :pt ,pt :pdf-file ,pdf-file))
-              (goto-char pt)
-              (beginning-of-line)
-              (org-reveal)))))
-      matches)))
+        (setq matches
+              (save-excursion
+                (save-restriction
+                  (widen)
+                  (goto-char (point-min))
+                  (if first-match
+                      (re-search-forward (or custom-id-re title-re) nil t)
+                    (if custom-id-re
+                        (when (re-search-forward custom-id-re)
+                          (org-reveal)
+                          (push (list (util/org-execute-search-heading-length-subr
+                                       words comment-re cookie-re)
+                                      (progn (outline-back-to-heading) (point))
+                                      (org-entry-get (point) "PDF_FILE"))
+                                matches))
+                      (while (re-search-forward title-re nil t)
+                        (push (list (util/org-execute-search-heading-length-subr
+                                     words comment-re cookie-re)
+                                    (point)
+                                    (org-entry-get (point) "PDF_FILE"))
+                              matches)))))))
+        (unless first-match
+          (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
+                 (pdf-prop (org-entry-get pt "PDF_FILE"))
+                 (pdf-file (when (and pdf-prop (string-match util/org-file-link-re pdf-prop))
+                             (match-string 1 pdf-prop)))
+                 (parg (pcase current-prefix-arg
+                         ((and (pred (listp)) x) (car x))
+                         ((and (pred (integerp)) x) x)
+                         (_ nil)))
+                 (func (a-get util/org-execute-search-prefix-arg-behaviour-alist parg)))
+            (when pt
+              (if func
+                  (funcall func `(:buffer ,buf :arg ,parg :pt ,pt :pdf-file ,pdf-file))
+                (goto-char pt)
+                (beginning-of-line)
+                (org-reveal)))))
+        matches))))
 
 (defun util/org-remove-all-drawers (&optional buf)
   "Remove all drawers from buffer BUF.
