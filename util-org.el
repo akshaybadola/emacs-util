@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 14 October 2021 18:50:15 PM IST>
+;; Time-stamp:	<Wednesday 26 January 2022 16:22:28 PM IST>
 ;; Keywords:	org, utility
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -26,12 +26,12 @@
 
 ;;; Commentary:
 ;;
-;; A bunch of functions and commands I wrote while using `org-mode'. Some of
+;; A bunch of functions and commands I wrote while using `org-mode'.  Some of
 ;; them have become quite powerful and useful so they warrant a separate
-;; package. Perhaps even separate them from this repo.
+;; package.  Perhaps even separate them from this repo.
 ;;
 ;; The utility functions I've used begin with `util/' prefix and I've kept the
-;; convention going here. You'll have to load them as "(require 'util/org util-org)"
+;; convention going here.  You'll have to load them as "(require 'util/org util-org)"
 ;; for it to load correctly; notice the file name in the end.
 
 ;;; Code:
@@ -77,13 +77,14 @@ group match gives the link and the second the description.")
 Used by `util/org-execute-simple-regexp-search'.")
 
 (defmacro util/with-org-mode (&rest body)
-  "Call form `body' only if major-mode is `org-mode'."
-  ;; (declare (debug (form body)))
+  "Call form BODY only if major-mode is `org-mode'."
+  (declare (debug t))
   `(util/with-check-mode
     'org-mode nil
     ,@body))
 
 (defun util/org-remove-all-time-stamps ()
+  "Remove all time stamps from current org buffer."
   (util/with-org-mode
    (goto-char (point-min))
    (while (re-search-forward (util/generate-org-ts-regexp org-time-stamp-formats)
@@ -162,10 +163,31 @@ Return the result of the application."
         (push (funcall fn) result))
       result)))
 
+(defun util/org-get-headings-at-level (d &optional func)
+  "Return list of headings D level deeper for subtree of current org heading.
+
+When optional FUNC is given, apply FUNC to each heading also."
+  (save-excursion
+    (org-back-to-heading)
+    (let ((level (org-current-level))
+          headings)
+      (outline-next-heading)
+      (when (= (org-current-level) (+ d level))
+        (when func
+          (funcall func))
+        (push (list (point) (substring-no-properties (org-get-heading t t t t))) headings)
+        (while (and (outline-next-heading)
+                    (>= (org-current-level) (+ d level)))
+          (when (= (org-current-level) (+ d level))
+            (when func
+              (funcall func))
+            (push (list (point) (substring-no-properties (org-get-heading t t t t))) headings))))
+      (reverse headings))))
+
 (defun util/org-apply-to-subtree-headings (fn all-levels)
   "Apply the function `FN' to each child heading of the current heading.
 Return the result of the application.  When ALL-LEVELS is
-non-nil, subheadings at all levels are return. Default is to
+non-nil, subheadings at all levels are return.  Default is to
 return only one level lower than the current heading."
   (save-excursion
     (save-restriction
@@ -248,6 +270,88 @@ is input from user.  It defaults to PDF_FILE if not given."
          (kill-new (mapconcat #'identity kill-str "\n"))
          (message (format "Copied %s subtrees" count)))))))
 
+(defun util/org-link-get-target-for-internal ()
+  "Check if link under point is an internal link and return target.
+
+The return value is a plist of (:file :point :path).
+
+Derived from `org-link-open'."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (let* ((link (org-element-context))
+             (type (org-element-property :type link))
+             (path (org-element-property :path link)))
+        (pcase type
+          ((or "fuzzy" "custom-id" "coderef" "file")
+           (pcase type
+             ((or "fuzzy" "custom-id" "coderef")
+              (org-link-search
+               (pcase type
+                 ("custom-id" (concat "#" path))
+                 ("coderef" (format "(%s)" path))
+                 (_ path))
+               ;; Prevent fuzzy links from matching themselves.
+               (and (equal type "fuzzy")
+                    (+ 2 (org-element-property :begin link)))
+               t)                       ; don't change visibility around point
+              `(:file ,(buffer-file-name) :point ,(point) :path ,path))
+             ("file" (with-current-buffer (find-file-noselect path)
+                       (let ((path-2 (org-element-property :search-option link)))
+                         (if (or (string-match-p "^#.+" path-2) "custom-id"
+                                 (string-match-p "^\\*.+" path-2) "fuzzy")
+                             (progn (org-link-search path-2 nil t)
+                                    `(:file ,path :point ,(point) :path ,path-2))
+                           (user-error "Not and org link %s" path-2))))))))))))
+
+(defun util/org-find-references (nlines)
+  "`occur' for references under point in `util/org-collect-headings-files'.
+
+NLINES is the number of lines of context for occur.
+
+A reference can be an org heading or a link to an org heading.
+If it's a link to an org heading then that heading is searched.
+Search is done by either custom-id if it's present or the heading
+itself."
+  (interactive "p")
+  (save-excursion
+    (pcase-let* ((maybe-org-link (let ((current-prefix-arg nil))
+                                   (util/org-link-get-target-for-internal)))
+                 (`(,buf ,pt) (if maybe-org-link
+                                  `(,(find-file-noselect (plist-get maybe-org-link :file))
+                                    ,(plist-get maybe-org-link :point))
+                                `(,(current-buffer) ,(point)))))
+      (with-current-buffer buf
+        (goto-char pt)
+        (let* ((cid (concat "#" (org-entry-get (point) "CUSTOM_ID")))
+               (heading (concat "\\*" (substring-no-properties (org-get-heading t t t t))))
+               (case-fold-search t)
+               (regexp (concat cid "\\|" heading))
+               (bufs (mapcar (lambda (x)
+                               (find-file-noselect x))
+                             util/org-collect-headings-files)))
+          (occur-1 regexp nlines bufs)))
+      ;; NOTE: Below we get buffer with point for each match. Although we can
+      ;;       finetune it better than occur, e.g., to display subtree heading or
+      ;;       path of the org entry alongwith the match, `occur' implementation
+      ;;       is quite complex and not well documented.
+      ;;
+      ;; (seq-do (lambda (buf)
+      ;;           (with-current-buffer buf
+      ;;             (save-excursion
+      ;;               (save-restriction
+      ;;                 (goto-char (point-max))
+      ;;                 (while (re-search-backward cid nil t)
+      ;;                   (push (list buf (point)) matches))
+      ;;                 (unless matches
+      ;;                   (goto-char (point-max))
+      ;;                   (while (re-search-backward heading nil t)
+      ;;                     (push (list buf (point)) matches)))))))
+      ;;         (mapcar #'buffer-name bufs))
+      ;; (message "%s" matches)
+      )))
+
+
 (defun util/org-execute-simple-regexp-search (str)
   "Find the link for a search string STR with a simple `re-search-forward'.
 When no function in `org-execute-file-search-functions' matches
@@ -286,7 +390,8 @@ number corresponds to the prefix argument converted to integer.")
 
 ;; FIXME: This is a bad hack. This should be fixed from `org-link-open'
 (defun util/org-execute-search-other-window (args)
-  "Execute search in other window."
+  "Execute search in other window.
+ARGS is a plist of search arguments."
   (let ((buf (plist-get args :buffer))
         (pt (plist-get args :pt))
         (orig-mark (car org-mark-ring))
@@ -297,12 +402,14 @@ number corresponds to the prefix argument converted to integer.")
     (set-window-buffer win (marker-buffer orig-mark))))
 
 (defun util/org-execute-search-goto-point (pt)
+  "Goto PT and `org-reveal'."
   (goto-char pt)
   (beginning-of-line)
   (org-reveal))
 
 (defun util/org-execute-search-find-pdf-file (args)
-  "Open PDF or DJVU file for link if it exists."
+  "Open PDF or DJVU file for link if it exists.
+ARGS is a plist of search arguments."
   (let ((pdf-file (plist-get args :pdf-file))
         (pt (plist-get args :pt)))
     (if pdf-file
@@ -339,8 +446,17 @@ See the above function for COMMENT-RE and COOKIE-RE."
 ;; FIXME: While this functionality is correct, the behaviour that I want, that
 ;;        is, for `C-u-C-u-C-o' to open the link from even same file in a
 ;;        different window (which doesn't work right now)
-(defun util/org-execute-customid-or-max-heading-match-search (str &optional first-match full-match)
+(defun util/org-execute-customid-or-max-heading-match-search
+    (str &optional first-match full-match)
   "Return match for either custom-id or org heading.
+
+With optional FIRST-MATCH non-nil return the first regexp match
+and don't search any further.
+
+When optional FULL-MATCH is non-nil match for the full heading.
+Default is to search for 3 words and then select the heading with
+the max match.
+
 If the link is for a custom-id then search for that else if it's
 a fuzzy link then search for a match for minimum three words of
 STR of org heading.  If heading contains less than 3 words, then
@@ -379,27 +495,26 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
            (comment-re org-comment-regexp)
            matches)
       (with-current-buffer buf
-        (setq matches
-              (save-excursion
-                (save-restriction
-                  (widen)
-                  (goto-char (point-min))
-                  (if first-match
-                      (re-search-forward (or custom-id-re title-re) nil t)
-                    (if custom-id-re
-                        (when (re-search-forward custom-id-re)
-                          (org-reveal)
-                          (push (list (util/org-execute-search-heading-length-subr
-                                       words comment-re cookie-re)
-                                      (progn (outline-back-to-heading) (point))
-                                      (org-entry-get (point) "PDF_FILE"))
-                                matches))
-                      (while (re-search-forward title-re nil t)
-                        (push (list (util/org-execute-search-heading-length-subr
-                                     words comment-re cookie-re)
-                                    (point)
-                                    (org-entry-get (point) "PDF_FILE"))
-                              matches)))))))
+        (save-excursion
+          (save-restriction
+            (widen)
+            (goto-char (point-min))
+            (if first-match
+                (re-search-forward (or custom-id-re title-re) nil t)
+              (if custom-id-re
+                  (when (re-search-forward custom-id-re)
+                    (org-reveal)
+                    (push (list (util/org-execute-search-heading-length-subr
+                                 words comment-re cookie-re)
+                                (progn (outline-back-to-heading) (point))
+                                (org-entry-get (point) "PDF_FILE"))
+                          matches))
+                (while (re-search-forward title-re nil t)
+                  (push (list (util/org-execute-search-heading-length-subr
+                               words comment-re cookie-re)
+                              (point)
+                              (org-entry-get (point) "PDF_FILE"))
+                        matches))))))
         (unless first-match
           (let* ((pt (and matches (cadr (-max-by (lambda (x y) (> (car x) (car y))) matches))))
                  (pdf-prop (org-entry-get pt "PDF_FILE"))
@@ -446,9 +561,9 @@ POS may also be a marker."
 			       (forward-line)
 			       (point))))))))
 
-(defun util/org-remove-list-items-matching-re-from-buffer (re)
+(defun util/org-remove-list-items-matching-re-from-buffer (re &optional _recurse)
   "Remove list items from an `org-mode' buffer which match regexp RE.
-The buffer to operate on must be an org buffer.  Optional RECURSE
+The buffer to operate on must be an org buffer.  Optional _RECURSE
 is not used."
   (when (eq major-mode 'org-mode)
     (goto-char (point-min))
@@ -530,7 +645,7 @@ metadata."
          (goto-char (match-beginning 0))
          (setq match (match-beginning 0)))
     (unless match
-      (debug))
+      (user-error "Could not find match for %s" str))
     (when match
       (util/org-narrow-to-heading-and-body)
       (buffer-string))))
@@ -570,10 +685,10 @@ remove the subtree from the buffer also."
                 (-first-item (split-string str "\n")))))
    (delete-blank-lines)))
 
-(defun util/org-remove-subtrees-matching-re (re &optional recurse)
+(defun util/org-remove-subtrees-matching-re (re &optional _recurse)
   "Remove subtrees from an `org-mode' buffer whose headlines match regexp RE.
 Remove only at one depth below the current subtree.  The buffer
-to operate on must be an org buffer.  Optional RECURSE is not
+to operate on must be an org buffer.  Optional _RECURSE is not
 used as of now."
   (let (regions)
     (org-element-map (org-element-parse-buffer) 'headline
@@ -613,6 +728,7 @@ predicate."
       headings)))
 
 (defun util/org-get-headings-from-cache (bufname)
+  "Get headings for BUFNAME from `util/org-collect-headings-cache'."
   (when (member bufname
                 (a-keys (util/org-collected-headings
                          #'util/org-default-heading-filter-p
@@ -764,11 +880,13 @@ When in org mode, delete the link text also."
         (message "Could not delete the link text")))))
 
 (defun util/org-rename-file-under-point (old new &optional name-only quiet)
-  "Rename the file under point from OLD to given NAME.
+  "Rename the file under point from OLD to given name NEW.
 Update the org link also when in org mode.
 
 When optional NAME-ONLY is non-nil, the link description is
-contracted to file name only."
+contracted to file name only.
+
+With non-nil optional QUIET don't output any messages."
   (save-excursion
     (when (derived-mode-p 'org-mode)
       (let ((beg (cond ((or (looking-back "\\[\\[\\(.+?\\)" 1)
@@ -798,6 +916,7 @@ contracted to file name only."
               (t (unless quiet (user-error "Not at an org file link"))))))))
 
 (defun util/org-shorten-link-description-to-file-name ()
+  "Shorten the link description for an org file link to just the file name."
   (interactive)
   (let ((uri (plist-get (get-text-property (point) 'htmlize-link) :uri)))
     (util/org-rename-file-under-point uri uri t t)))
@@ -805,13 +924,17 @@ contracted to file name only."
 ;; TODO: Keep old name in some undo history, perhaps in a hash table
 (defun util/org-move-file-under-point (call-method &optional newname)
   "Move file for a file link under point on the disk.
-Update the org link also when in org mode."
+Update the org link also when in org mode.
+
+CALL-METHOD is to check for interactive use.
+
+If optional NEWNAME is not given then prompt for it."
   (interactive "p")
   (pcase-let* ((link (get-text-property (point) 'htmlize-link))
-               (context (org-element-context))
-               (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
-                                               (plist-get (cadr context) :end))
-                               (list nil nil)))
+               ;; (context (org-element-context))
+               ;; (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
+               ;;                                 (plist-get (cadr context) :end))
+               ;;                 (list nil nil)))
                (uri (plist-get link :uri))
                (uri (when uri (replace-regexp-in-string "file:" "" (plist-get link :uri))))
                (uri (and link uri (f-exists? uri) uri))
@@ -889,12 +1012,15 @@ If not given, it defaults to `identity'.
 
 If optional CITATION is non-nil, the headings are gathered for
 only the current buffer and citations within the current
-`doc-root' are searched. A `doc-root' is an org subtree with the
+`doc-root' are searched.  A `doc-root' is an org subtree with the
 non-nil property DOC_ROOT.
 
 When optional REFS is non-nil and an immediate sub-heading of
 `doc-root' named \"References\" exists, then those are also
 offered as options.
+
+FIXME: CACHE-ONLY is obsolete as the search is done in cache by
+default and the cache is updated as required.
 
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
@@ -1033,23 +1159,24 @@ The PREDICATE is run on each entry of the cache.
 
 Optionally search only in entries for FILE-OR-BUFFER.
 FILE-OR-BUFFER must be in `util/org-collect-buffers'."
+  (when cache-name
+    (user-error "Multiple caches not implemented yet."))
   (let ((cache (if file-or-buffer
                    (a-get util/org-collect-headings-cache
                           (pcase (or (get-buffer file-or-buffer)
                                      (and (f-exists? file-or-buffer)
                                           (find-file-noselect file-or-buffer)))
-                            ((and bufname) bufname)))
-                 util/org-collect-headings-cache)))
+                            ((and buf) (buffer-name buf))))
+                 (apply #'-concat (a-vals util/org-collect-headings-cache)))))
     (-filter (lambda (x) (funcall predicate x))
-             (-concat (a-vals util/org-collect-headings-cache)))))
+             (or cache (apply #'-concat (a-vals util/org-collect-headings-cache))))))
 
 (defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
   "Subroutine for `util/org-collect-duplicate-headings'.
 See `util/org-collect-duplicate-headings' for details.  `defun'
 doesn't work when passing references to headings and dups for
 some reason."
-  (declare (debug (symbolp heading symbolp pos listp headings listp dups
-                           listp strings symbolp predicate symbolp ignore-case symbolp test)))
+  (declare (debug t))
   `(let ((item (cons heading pos))
          (check (if ignore-case (downcase heading) heading)))
      (if predicate
@@ -1076,6 +1203,7 @@ some reason."
 See `util/org-collect-duplicate-headings' for details.  `defun'
 doesn't work when passing references to headings and dups for
 some reason."
+  (declare (debug t))
   `(if predicate
        (when (funcall predicate check)
          (push item headings)
@@ -1167,9 +1295,8 @@ Defaults to `equal'."
                (goto-char (point-max))
                (while (re-search-backward org-complex-heading-regexp nil t)
                  (let* ((el (org-element-at-point))
-                        (heading (org-element-property :title el))
                         (pos (org-element-property :begin el))
-                        (item `(heading . ,(list pos bufname)))
+                        (item `(,(org-element-property :title el) . ,(list pos bufname)))
                           (check (if ignore-case (downcase (car el))
                                    (car el))))
                    (util/org-collect-duplicate-subr-other item check headings dups strings
@@ -1182,6 +1309,23 @@ Defaults to `equal'."
      buffers)
     (sort dups (lambda (x y) (string-greaterp (car y) (car x))))))
 
+(defun util/org-copy-link-under-point ()
+  "Copy if there's an org link under point."
+  (interactive)
+  (util/with-org-mode
+   (let* ((el (org-element-context))
+          (link (org-element-property :raw-link el))
+          (fname (buffer-file-name))
+          (type (org-element-property :type el))
+          (desc (buffer-substring-no-properties (plist-get (cadr el) :contents-begin)
+                                                (plist-get (cadr el) :contents-end))))
+     (when (eq (car el) 'link)
+       (kill-new (pcase type
+                   ((or "custom-id" "fuzzy")
+                    (format "[[file:%s::%s][%s]]" fname link desc))
+                   (_
+                    (format "[[%s][%s]]" link desc))))))))
+
 ;; TODO: Perhaps can add a timer to warn user if copying link after long time so
 ;;       that on first copy `util/org-copy-link-append' should be nil. Or the
 ;;       timer could set `util/org-copy-link-append' automatically to nil.
@@ -1192,6 +1336,7 @@ Defaults to `equal'."
 Prefer custom-id but default to fuzzy link.  Optional PREF-ARG
 is for checking interactive usage."
   (interactive "p")
+  ;; (message "%s %s" helm-org-rifle-occur-results-buffer-name (current-buffer))
   (when (eq pref-arg 4)
     (setq util/org-copy-link-append nil))
   (let* ((case-fold-search t)
@@ -1201,6 +1346,7 @@ is for checking interactive usage."
          (option (if custom-id (concat "#" custom-id) (concat "*" heading)))
          (filename (buffer-file-name))
          (link (format "[[%s::%s][%s]]" filename option heading)))
+    ;; (message "%s %s %s" heading filename helm-current-source)
     (if pref-arg
         (if util/org-copy-link-append
             (progn (kill-append (concat "\n" link) nil)
@@ -1210,10 +1356,36 @@ is for checking interactive usage."
           (message "Killed new link to %s" heading))
       link)))
 
+(defun util/org-copy-links-to-multiple-headings ()
+  "Copy links to all headings in region.
+
+The links are saved in the `kill-ring'."
+  (interactive)
+  (unless (region-active-p)
+    (user-error "No region active"))
+  (let ((beg (region-beginning))
+        (end (region-end))
+        links)
+    (save-restriction
+      (narrow-to-region beg end)
+      (save-excursion
+        (goto-char (point-min))
+        (unless (org-at-heading-p)
+          (outline-next-heading)
+          (push (util/org-copy-link-to-heading) links))
+        (while (outline-next-heading)
+          (push (util/org-copy-link-to-heading) links))))
+    (kill-new (string-join (reverse links) "\n"))
+    (when mark-active
+      (deactivate-mark))))
+
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.
 With optional boolean function PREDICATE, check only those org
-entries which satisfy it."
+entries which satisfy it.
+
+Optional TEST is the test with which to compare the heading
+strings.  Defaults to `equal'."
   (let ((custom-id-re (rx (*? " ") ":CUSTOM_ID:" (*? " ") (group (+ (any "a-zA-Z0-9_-")))))
         (test (or test 'equal))
         headings dups strings)

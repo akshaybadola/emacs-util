@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 14 October 2021 18:50:15 PM IST>
+;; Time-stamp:	<Wednesday 26 January 2022 16:22:34 PM IST>
 ;; Keywords:	helm, org, utility
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -42,10 +42,10 @@
 (defvar util/helm-org-duplicate-headings nil
   "Global variable to easily access duplicate headings found in buffer.")
 
-(defun util/helm-org-show (char)
+(defun util/helm-org-show (pos)
   "Show the org entry including property block at point CHAR."
   (interactive)
-  (let ((buf (or (helm-get-attr 'buffer) helm-current-buffer)))
+  (pcase-let* ((`(,buf ,char) pos))
     (with-current-buffer buf
       (switch-to-buffer buf)
       (goto-char char)
@@ -62,10 +62,8 @@
   "Show the org entry including property block at POS.
 POS is a list of '(point buffer)."
   (interactive)
-  (let ((char (car pos))
-        (buf (cadr pos)))
+  (pcase-let ((`(,buf ,char) pos))
     (with-current-buffer buf
-      (switch-to-buffer buf)
       (goto-char char)
       (recenter-top-bottom)
       (org-show-entry)
@@ -84,11 +82,14 @@ POS is a list of '(point buffer)."
         (message "Cannot delete node with children")
       (org-copy-subtree nil t))))
 
-(defun util/helm-org-show-outline (&rest args)
-  "Print the outline path for heading at point in helm"
-  (interactive)
-  (with-helm-current-buffer
-    (message (org-format-outline-path (org-get-outline-path)))))
+(defun util/helm-org-show-outline (pos)
+  "Print the outline path for heading at point POS in helm"
+  (interactive "P")
+  (pcase-let ((`(,buf ,char) pos))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char char)
+        (message (org-format-outline-path (org-get-outline-path)))))))
 
 (defun util/helm-org-copy-persistent ()
   "Copy link to org heading keeping helm session."
@@ -98,14 +99,13 @@ POS is a list of '(point buffer)."
     (helm-execute-persistent-action 'copy-link-to-entry)))
 (put 'util/helm-org-copy-persistent 'helm-only t)
 
-;; TODO: This is just same as the earlier function, LOL.
 (defun util/helm-org-show-outline-persistent ()
   "Show org heading keeping helm session."
   (interactive)
   (with-helm-alive-p
-    (helm-set-attr 'copy-link-to-entry '(util/helm-org-copy-link-to-entry . never-split))
-    (helm-execute-persistent-action 'copy-link-to-entry)))
-(put 'util/helm-org-copy-persistent 'helm-only t)
+    (helm-set-attr 'show-outline '(util/helm-org-show-outline . never-split))
+    (helm-execute-persistent-action 'show-outline)))
+(put 'util/helm-org-show-outline-persistent 'helm-only t)
 
 ;; TODO: If they're in the same subtree, just delete one of them
 ;; TODO: Subtract the number of characters from each POS after POINT from DUPS
@@ -166,18 +166,21 @@ that function for implementation details."
 
 (defvar util/helm-org-kill-append nil)
 
-(defun util/helm-org-copy-link-to-entry (&rest args)
+(defun util/helm-org-copy-link-to-entry (pos)
   "Copy the link to current entry in helm buffer.
 This doesn't store the link but copies it to the kill ring.  In
 case multiple links are copied in the same session they are
 appended to the kill ring separated with a newline."
   (interactive "P")
-  (with-helm-current-buffer
-    (let ((link (util/org-copy-link-to-heading)))
-      (if util/helm-org-kill-append
-          (kill-append (concat "\n" link) nil)
-        (kill-new link)
-        (setq util/helm-org-kill-append t)))))
+  (pcase-let* ((`(,buf ,pt) pos)
+               (link (with-current-buffer buf
+                       (save-excursion
+                         (goto-char pt)
+                         (util/org-copy-link-to-heading)))))
+    (if util/helm-org-kill-append
+        (kill-append (concat "\n" link) nil)
+      (kill-new link)
+      (setq util/helm-org-kill-append t))))
 
 (defvar util/helm-org-show-dup-actions
   (helm-make-actions
@@ -190,7 +193,7 @@ appended to the kill ring separated with a newline."
 (defvar util/helm-org-show-dup-map
   (let ((new-map (copy-keymap helm-map)))
     (define-key new-map (kbd "C-k") 'util/helm-org-delete)
-    (define-key new-map (kbd "C-l") 'util/helm-org-show-outline)
+    (define-key new-map (kbd "C-l") 'util/helm-org-show-outline-persistent)
     (define-key new-map (kbd "C-R") 'util/helm-org-replace-heading-as-list-item)
     new-map)
   "Keymap for `helm-org-rifle'.")
@@ -267,21 +270,29 @@ PRED defaults to `identity'."
         (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
           (setq headings (-filter #'identity
                                   (mapcar (lambda (x) (when (funcall pred (car x))
-                                                        (cons (car x) (-last-item x))))
+                                                        ;; (heading . ((buffer-name) (point)))
+                                                        `(,(car x) . ,(list (nth 2 x) (-last-item x)))))
                                           cache))))
       (save-excursion
         (goto-char (point-max))
-        (while (re-search-backward org-complex-heading-regexp nil t)
-          (let* ((el (org-element-at-point))
-                 (heading (org-element-property :title el))
-                 (pos (org-element-property :begin el)))
-            (when (funcall pred heading)
-              (push (cons heading pos) headings))))))
+        (let ((buf (format "%s" (current-buffer))))
+          (while (re-search-backward org-complex-heading-regexp nil t)
+            (let* ((el (org-element-at-point))
+                   (heading (org-element-property :title el))
+                   (pos (org-element-property :begin el)))
+              (when (funcall pred heading)
+                ;; NOTE: Was (push (cons heading pos) headings)
+                (push `(,heading . ,(list buf pos)) headings)))))))
     headings))
 
+;; NOTE: After a lot of head wrangling I got this to work. One has to make two
+;;       commands and one of them has to be a persistent version. The persistent
+;;       version is called from the shortcut, while usually the non-persistent
+;;       one will be called from the actions menu.
 (defvar util/helm-org-headings-map
   (let ((new-map (copy-keymap helm-map)))
-    (define-key new-map (kbd "C-w") 'util/helm-org-copy-link-to-entry)
+    (define-key new-map (kbd "C-s") 'util/helm-org-show-outline-persistent)
+    (define-key new-map (kbd "C-w") 'util/helm-org-copy-persistent)
     new-map)
   "Keymap for `util/helm-org-headings'.")
 
@@ -299,7 +310,8 @@ predicate."
                     :follow 1
                     :action (helm-make-actions
                              "Show Entry" 'util/helm-org-show
-                             "Copy Link to Entry" 'util/helm-org-copy-persistent)
+                             "Show Entry With Path" 'util/helm-org-show-outline
+                             "Copy Link to Entry" 'util/helm-org-copy-link-to-entry)
                     :keymap util/helm-org-headings-map))))
 
 (defun util/helm-org-get-source-for-buf (buf &optional pred)
@@ -312,15 +324,16 @@ Optional PRED is used to filter the headings."
                   :follow 1
                   :action (helm-make-actions
                            "Show Entry" 'util/helm-org-show
-                           "Copy Link to Entry" 'util/helm-org-copy-persistent)
+                           "Show Entry With Path" 'util/helm-org-show-outline
+                           "Copy Link to Entry" 'util/helm-org-copy-link-to-entry)
                   :keymap util/helm-org-headings-map)))
     (helm-set-attr 'buffer buf source)
     source))
 
-(defun util/helm-org-sources-agenda-files ()
+(defun util/helm-org-sources-agenda-files (&optional pred)
   "Subroutine to gather helm sources from agenda files."
   (let* ((bufs (mapcar #'find-buffer-visiting (org-agenda-files)))
-         (sources (mapcar #'util/helm-org-get-source-for-buf bufs)))
+         (sources (mapcar (-rpartial #'util/helm-org-get-source-for-buf pred) bufs)))
     sources))
 
 (defun util/helm-org-headings-agenda-files (&optional pred)
@@ -329,7 +342,7 @@ With optional predicate PRED, show only those headings which satisfy the
 predicate."
   (interactive)
   (setq util/helm-org-kill-append nil)
-  (helm :sources (util/helm-org-sources-agenda-files)))
+  (helm :sources (util/helm-org-sources-agenda-files pred)))
 
 (provide 'util/helm-org)
 

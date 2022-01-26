@@ -102,3 +102,16 @@
      executing search
    - Fixed a bug in full match in ~util/org-execute-customid-or-max-heading-match-search~
      Cleaner implementation also.
+
+** [2022-01-26 Wed 16:15]
+   - Added ~(debug t)~ instead of more verbose debug declarations. Still don't
+     understand it.
+   - Fixed arguments of ~util/package-top-level-packages~.
+   - Added optional check if grepping in > 50 files for ~util/ffip-grep-git-files~.
+   - Removed obsolete ~cdass~
+   - New functions ~util/org-get-headings-at-level~,
+     ~util/org-link-get-target-for-internal~,
+     ~util/org-find-references~, ~util/org-copy-link-under-point~,
+     ~util/org-copy-links-to-multiple-headings~
+   - Fixed ~util/helm-org-show-outline~ and some other ~util/helm-org~ functions
+   - Fixed docs.

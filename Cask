@@ -16,3 +16,4 @@
 (depends-on "bind-key" "2.4")
 (depends-on "sphinx-doc" "0.3.0")
 (depends-on "tern" "0.0.1")
+(depends-on "string-inflection")

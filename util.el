@@ -5,11 +5,12 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 26 October 2021 04:57:45 AM IST>
+;; Time-stamp:	<Wednesday 26 January 2022 16:22:23 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.3.11
+;; Version:     0.3.12
 ;; Package-Requires: ((helm) (a "0.1.1") (org "9.5.0") (dash "2.17.0")
-;;                    (bind-key "2.4") (find-file-in-project "6.0.6"))
+;;                    (bind-key "2.4") (find-file-in-project "6.0.6")
+;;                    (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -47,9 +48,10 @@
 (require 'imenu)
 (require 'package)
 (require 'time-stamp)
+u(require 'string-inflection)
 
 (defvar util/insert-heading-python-executable "/usr/bin/python"
-  "The python executable for `util/insert-heading-from-url'")
+  "The python executable for `util/insert-heading-from-url'.")
 
 (defvar parse-time-weekdays)
 
@@ -89,16 +91,12 @@
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
 
-(defsubst cdass (elem alist)
-  "Short for (cdr (assoc ELEM) list).
-Argument ALIST association list."
-    (cdr (assoc elem alist)))
-
 (defmacro util/with-check-mode (mode msg-prefix &rest body)
   "Execute BODY only if `major-mode' equals MODE.
 Otherwise message not in MODE.  MSG-PREFIX can be used to indicate
 the package from which the macro is invoked.  If MSG-PREFIX is
 nil, then nothing is prefixed to the message."
+  (declare (debug t))
   `(if (eq major-mode ,mode)
        (progn ,@body)
      (message "%sNot in %s"
@@ -107,6 +105,7 @@ nil, then nothing is prefixed to the message."
 
 (defmacro util/measure-time (&rest body)
   "Measure the time it takes to evaluate BODY."
+  (declare (debug t))
   `(let ((time (current-time)))
      ,@body
      (message "%.06f" (float-time (time-since time)))))
@@ -114,6 +113,7 @@ nil, then nothing is prefixed to the message."
 (defmacro util/measure-time-n (n &rest body)
   "Measure the time it takes to evaluate BODY.
 Sum over N iterations."
+  (declare (debug t))
   `(let ((time (current-time)))
      (dotimes (i ,n)
        ,@body)
@@ -505,27 +505,32 @@ argument ALL, return dependent packages from archives also (not implemented)."
                                        (when (member name req-names) x)))
                                    reqs)))))
 
-(defun util/package-top-level-packages (&optional order)
+(defun util/package-top-level-packages (&optional sort-by order)
   "Return list of packages which are not a dependency of any other package.
-Optional ORDER controls the ordering of the returned list.
-Default isn't ordered but can be specified as
-'(time|name|installed . asc|desc)."
-  (let ((packages (-non-nil (mapcar (lambda (x)
+
+Optional SORT specifies how to sort-by the returned list.  If
+'time then sort by installed date.  Return alphabetically sorted
+by default.
+
+Optioanl ORDER specifies whether to sort-by in 'ascending or
+'descending order."
+  (let* ((packages (-non-nil (mapcar (lambda (x)
                       (unless (util/package-required-by (car x)) (car x)))
-                                    package-alist))))
-    (pcase-let ((`(,ord . ,asc) order))
-      (pcase ord
-        ('installed (mapcar
-                     #'car
-                     (-sort (lambda (y z) (time-less-p (cdr y) (cdr z)))
-                            (mapcar
-                             (lambda (pkg)
-                               `(,pkg . ,(file-attribute-modification-time
-                                          (file-attributes
-                                           (-first (lambda (x) (string-match-p ".elc$" x))
-                                                   (f-files (plist-get (util/package-info pkg) :directory)))))))
-                             packages))))
-        (t (reverse packages))))))
+                                     package-alist))))
+    (setq packages
+          (pcase sort-by
+            ('time (mapcar
+                    #'car
+                    (-sort (lambda (y z) (time-less-p (cdr y) (cdr z)))
+                           (mapcar
+                            (lambda (pkg)
+                              `(,pkg . ,(file-attribute-modification-time
+                                         (file-attributes
+                                          (-first (lambda (x) (string-match-p ".elc$" x))
+                                                  (f-files (plist-get (util/package-info pkg) :directory)))))))
+                            packages))))
+            (_ packages)))
+    (if (eq order 'descending) packages (reverse packages))))
 
 (defun util/package-version (lib)
   "Return the library version for LIB.
@@ -665,11 +670,15 @@ Optional SEARCH-FOR-PATH modifies the find behaviour to use
              (message "No files found matching pattern %s" pattern))
             (t nil)))))
 
-(defun util/read-if-not-nil (sym val &optional prompt)
-  "Read from minibuffer if SYM is nil with default value VAL."
+(defun util/read-if-nil (sym val &optional prompt)
+  "Read from minibuffer if SYM is nil with default value VAL.
+
+The return value is always string so one must not use this for
+other return types or should convert to appropriate type."
   (format "%s" (or sym
-                   (read-from-minibuffer (format (or prompt "Enter the file pattern (default %s): ") val)
-                                         nil nil t nil val))))
+                   (let ((read (read-from-minibuffer (format (or prompt "Enter the file pattern (default %s): ") val)
+                                                     nil nil nil nil val)))
+                     (if (string-empty-p read) val read)))))
 
 (defun util/ffip-grep-pattern (&optional file-pattern grep-pattern)
   "Grep for GREP-PATTERN in files returned by `util/ffip-search'.
@@ -677,12 +686,14 @@ The files are matched with FILE-PATTERN."
   (interactive "p")
   (let* ((phrase (thing-at-point 'symbol t))
          (file (concat "*." (car (last (split-string (buffer-file-name) "\\.")))))
-         (file-pattern (util/read-if-not-nil file-pattern file))
-         (grep-pattern (util/read-if-not-nil grep-pattern phrase))
+         (file-pattern (util/read-if-nil file-pattern file))
+         (grep-pattern (util/read-if-nil grep-pattern phrase))
          (files (util/ffip-search file-pattern))
+         (cmd (concat "grep --color -nH --null -i -E " (format "\"%s\"" grep-pattern) " "
+                      (mapconcat (lambda (x) (format "\"%s\"" x)) files " ")))
          grep-save-buffers)
     (if files
-        (grep (string-join (-concat `("grep --color -nH --null -i -E" ,grep-pattern) files) " "))
+        (grep cmd)
       (message "No files found matching pattern %s" grep-pattern))))
 
 (defun util/ffip-grep-default ()
@@ -692,18 +703,47 @@ The files are matched with FILE-PATTERN."
 
 (defalias 'util/ffip-gg 'util/ffip-grep-git-files)
 
-(defun util/ffip-grep-git-files (&optional pattern)
-  "Grep for PATTERN in git staged files."
+(defcustom util/ffip-grep-num-files-threshold
+  50
+  "Number of max files to grep for util/*grep functions."
+  :type 'number
+  :group 'util)
+
+(defun util/ffip-grep-git-files (&optional pattern filter-re)
+  "Grep for PATTERN in git staged files.
+
+If optional FILTER-RE is given then filter files based on that
+regexp first."
   (interactive)
   (let* ((root (ffip-project-root))
          (phrase (thing-at-point 'symbol t))
-         (files (-filter (lambda (x) (not (string-empty-p x)))
-                         (split-string (shell-command-to-string (format "cd %s && git ls-files" root)))))
-         (pattern (util/read-if-not-nil pattern phrase "Grep in git files: (default %s): "))
+         (cmd-output (shell-command-to-string (format "cd %s && git ls-files" root)))
+         (filter-re (if (or filter-re current-prefix-arg)
+                        (util/read-if-nil
+                         filter-re nil
+                         "Restrict grep to files matching regexp: (default all): ")
+                      "."))
+         (files (if (string-match-p "fatal: not a git" cmd-output)
+                    (user-error "%s does not seem to be a git repo" root)
+                  (-filter (lambda (x) (string-match-p filter-re x))
+                           (split-string cmd-output))))
+         (prompt (if (not (string= filter-re "."))
+                     (concat "Grep in git files matching " filter-re  " : (default %s): ")
+                   "Grep in git files: (default %s): "))
+         (pattern (util/read-if-nil pattern phrase prompt))
          (default-directory root)
+         (cmd (concat "grep --color -nH --null -i -E " (format "\"%s\"" pattern) " "
+                      (mapconcat (lambda (x) (format "\"%s\"" x)) files " ")))
+         ;; NOTE: Old cmd doesn't escape file names or even pattern
+         ;; (cmd (string-join (-concat `("grep --color -nH --null -i -E" ,pattern) files) " "))
          grep-save-buffers)
     (if files
-        (grep (string-join (-concat `("grep --color -nH --null -i -E" ,pattern) files) " "))
+        (if (> (length files) util/ffip-grep-num-files-threshold)
+            (if (y-or-n-p
+                 (format "You are about to grep in %s files. Are you sure? " (length files)))
+                (grep cmd)
+              (user-error "Aborted"))
+          (grep cmd))
       (message "No files found matching pattern %s" pattern))))
 
 (defun util/rgrep-default-search (regexp)
@@ -713,7 +753,7 @@ The REGEXP pattern is asked on the prompt by default.
 See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
   (interactive (list (let ((phrase (thing-at-point 'symbol t)))
                        (read-from-minibuffer (format "Regexp (default %s): " phrase)
-                                             nil nil t nil phrase))))
+                                             nil nil nil nil phrase))))
   (unless (stringp regexp)
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
@@ -1080,7 +1120,7 @@ If called interactively, then transform the active region to
 title case.  Words to ignore are determined by a no-capitalize
 list.  Default is `util/no-capitalize-list'.
 
-See also, `util/no-capitalize-small' and `util/no-capitalize-big'."
+Other possible lists are `util/no-capitalize-small' and `util/no-capitalize-big'."
   (interactive)
   (when (called-interactively-p 'any)
     (if (region-active-p)
@@ -1094,9 +1134,10 @@ See also, `util/no-capitalize-small' and `util/no-capitalize-big'."
         (result (progn
                   (cl-loop for x in split
                            do
-                           (if (and (member x util/no-capitalize-list)
-                                    (not capitalize-next)
-                                    (not (= count 0))) ; first word
+                           (if (or (string-inflection-upcase-p x)
+                                   (and (member x util/no-capitalize-list)
+                                        (not capitalize-next)
+                                        (not (= count 0)))) ; first word
                                (push x result)
                              (push (capitalize x) result))
                            (if (string-match-p "[\.:]$" x) ; end of clause or sentence
@@ -1171,9 +1212,10 @@ atoms."
                   (push x atoms))))
     atoms))
 
-(defun util/commands-matching-re (re)
-  "Return list of commands matching regexp RE."
-  (util/functions-matching-re re (lambda (x) (commandp (symbol-function x)))))
+;; (defun util/commands-matching-re (re)
+;;   "Return list of commands matching regexp RE."
+;;   (let ((preds (-partial (lambda (x) (commandp (symbol-function x))))))
+;;     (util/functions-matching-re re preds)))
 
 ;; FIXME: This is totally broken
 ;; (defun util/builtins-matching-re (re)
