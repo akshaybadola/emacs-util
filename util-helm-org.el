@@ -5,8 +5,10 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 26 January 2022 16:22:34 PM IST>
+;; Time-stamp:	<Thursday 27 January 2022 12:52:34 PM IST>
 ;; Keywords:	helm, org, utility
+;; Version:     0.4.0
+;; Package-Requires: ((util/core) (util/org) (helm))
 
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -29,7 +31,7 @@
 ;; Some helm functions for org mode.
 ;;
 ;; The utility functions I've used begin with `util/' prefix and I've kept the
-;; convention going here. You'll have to load them as "(require 'util/helm-org util-helm-org)"
+;; convention going here. You'll have to load them as (require 'util/helm-org "util-helm-org")
 ;; for it to load correctly; notice the file name in the end.
 
 ;;; Code:
@@ -37,7 +39,7 @@
 (require 'org)
 (require 'helm)
 (require 'util)
-(require 'util/org "util-org")
+(require 'util/org "util-org.el")
 
 (defvar util/helm-org-duplicate-headings nil
   "Global variable to easily access duplicate headings found in buffer.")

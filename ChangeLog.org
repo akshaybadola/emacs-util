@@ -115,3 +115,8 @@
      ~util/org-copy-links-to-multiple-headings~
    - Fixed ~util/helm-org-show-outline~ and some other ~util/helm-org~ functions
    - Fixed docs.
+
+** [2022-01-27 Thu 12:52]
+   - Split the files into spearate packages based on use. Cask doesn't work for
+     these. Will have to find an alternative way to compile, perhaps with a
+     preloading script with cask.

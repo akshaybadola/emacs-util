@@ -5,9 +5,10 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 26 January 2022 16:22:28 PM IST>
+;; Time-stamp:	<Thursday 27 January 2022 12:52:23 PM IST>
 ;; Keywords:	org, utility
-
+;; Version:     0.4.0
+;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
 ;; This program is free software; you can redistribute it and/or modify it
@@ -31,14 +32,14 @@
 ;; package.  Perhaps even separate them from this repo.
 ;;
 ;; The utility functions I've used begin with `util/' prefix and I've kept the
-;; convention going here.  You'll have to load them as "(require 'util/org util-org)"
+;; convention going here.  You'll have to load them as (require 'util/org "util-org")
 ;; for it to load correctly; notice the file name in the end.
 
 ;;; Code:
 
 (require 'org)
 (require 'org-element)
-(require 'util)
+(require 'util/core "util-core.el")
 
 ;; (declare-function org-hide-drawer-toggle "org")
 
@@ -82,6 +83,22 @@ Used by `util/org-execute-simple-regexp-search'.")
   `(util/with-check-mode
     'org-mode nil
     ,@body))
+
+;; FIXME: What does it do?
+(defun util/clean-generated-org-buf ()
+  "Don't recall really."
+  (interactive)
+  (save-excursion
+    (goto-char (point-min))
+    (outline-show-branches)
+    (outline-next-heading)
+    (outline-next-heading)
+    (kill-line 2)
+    (goto-char (point-min))
+    (while (re-search-forward "â\\|’" nil t)
+      (replace-match "'"))
+    (while (search-forward "–" nil t)
+      (replace-match "--"))))
 
 (defun util/org-remove-all-time-stamps ()
   "Remove all time stamps from current org buffer."
@@ -1171,6 +1188,8 @@ FILE-OR-BUFFER must be in `util/org-collect-buffers'."
     (-filter (lambda (x) (funcall predicate x))
              (or cache (apply #'-concat (a-vals util/org-collect-headings-cache))))))
 
+;; NOTE: Apparently I'm not using the args as they'd only be used after I eval
+;;       them like ,heading.
 (defmacro util/org-collect-duplicate-subr (heading pos headings dups strings predicate ignore-case test)
   "Subroutine for `util/org-collect-duplicate-headings'.
 See `util/org-collect-duplicate-headings' for details.  `defun'
@@ -1198,30 +1217,31 @@ some reason."
              (push old-heading dups))
            (push item dups))))))
 
-(defmacro util/org-collect-duplicate-subr-other (item check headings dups strings predicate ignore-case test)
-  "Subroutine for `util/org-collect-duplicate-headings'.
+(with-no-warnings
+  (defmacro util/org-collect-duplicate-subr-other (item check headings dups strings predicate ignore-case test)
+    "Subroutine for `util/org-collect-duplicate-headings'.
 See `util/org-collect-duplicate-headings' for details.  `defun'
 doesn't work when passing references to headings and dups for
 some reason."
-  (declare (debug t))
-  `(if predicate
-       (when (funcall predicate check)
-         (push item headings)
-         (push check strings)
-         (when (> (cl-count check strings :test test) 1)
-           (let* ((old-pos (cl-position check (reverse strings) :test test))
-                  (old-heading (nth old-pos (reverse headings))))
-             (unless (cl-member old-heading dups :test test)
-               (push old-heading dups)))
-           (push item dups)))
-     (push item headings)
-     (push check strings)
-     (when (> (cl-count check strings :test test) 1)
-       (let* ((old-pos (cl-position check (reverse strings) :test test))
-              (old-heading (nth old-pos (reverse headings))))
-         (unless (cl-member old-heading dups :test test)
-           (push old-heading dups))
-         (push item dups)))))
+    (declare (debug t))
+    `(if predicate
+         (when (funcall predicate check)
+           (push item headings)
+           (push check strings)
+           (when (> (cl-count check strings :test test) 1)
+             (let* ((old-pos (cl-position check (reverse strings) :test test))
+                    (old-heading (nth old-pos (reverse headings))))
+               (unless (cl-member old-heading dups :test test)
+                 (push old-heading dups)))
+             (push item dups)))
+       (push item headings)
+       (push check strings)
+       (when (> (cl-count check strings :test test) 1)
+         (let* ((old-pos (cl-position check (reverse strings) :test test))
+                (old-heading (nth old-pos (reverse headings))))
+           (unless (cl-member old-heading dups :test test)
+             (push old-heading dups))
+           (push item dups))))))
 
 (defvar util/org-use-headings-cache t
   "Whether to use headings from `util/org-headings-cache'.
@@ -1302,7 +1322,8 @@ Defaults to `equal'."
                    (util/org-collect-duplicate-subr-other item check headings dups strings
                                                           predicate ignore-case test))))))
          ;; (setq offset (- (length dups) offset))
-         ;; (setq copies (-concat (mapcar (lambda (x) `(,(concat (car x) " " (buffer-name buf)) . ,(list (cdr x) buf)))
+         ;; (setq copies (-concat (mapcar (lambda (x) `(,(concat (car x) " " (buffer-name buf))
+         ;; . ,(list (cdr x) buf)))
          ;;                               (-slice dups 0 offset))
          ;;                       copies))
          ))

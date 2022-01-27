@@ -1,11 +1,11 @@
-;;; util.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
+;;; util-all.el --- Meta pacakge for loading all `util' functions. ;;; -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2020,2021
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 27 January 2022 12:52:41 PM IST>
+;; Time-stamp:	<Thursday 27 January 2022 12:52:49 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 
@@ -28,18 +28,16 @@
 
 ;;; Commentary:
 
-;; A bunch of utility functions that I wrote in my Emacs config.  Some functions
-;; are now required by other packages I've written so I've decided to make it a
-;; separate package.
-;;
-;; They've been split into multiple files and should be loaded as such. This
-;; file only imports core functionality from `util/core'.
+;; Loads all symbols from all util files
 
 ;;; Code:
 
 (require 'util/core "util-core.el")
+(require 'util/ffip "util-ffip.el")
+(require 'util/helm-org "util-helm-org.el")
+(require 'util/misc "util-misc.el")
+(require 'util/org "util-org.el")
 
-(provide 'util)
+(provide 'util/all)
 
-;;; util.el ends here
-
+;;; util-all.el ends here
