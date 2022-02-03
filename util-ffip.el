@@ -44,16 +44,17 @@
   "Generate patterns for use with find command according to EXPR."
   (cond ((string-suffix-p "/" expr)
          (--> expr
-           (replace-regexp-in-string "\\*" "\\\\*" it)
-           (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1" it)
-           (replace-regexp-in-string (rx  (group (+ any)) "/" eol) "\\1" it)
-           (cons 'prune (format "-path %s%s\\*"
-                           (if (string-prefix-p "./" it) "" "\\*") it))))
+              (replace-regexp-in-string "\\*" "\\\\*" it)
+              (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1" it)
+              (replace-regexp-in-string (rx  (group (+ any)) "/" eol) "\\1" it)
+              (cons 'prune (format "-path %s%s\\*"
+                                   (if (string-prefix-p "./" it) "" "\\*") it))))
         (t
-         (cons 'exclude (->> expr
-           (replace-regexp-in-string "\\*" "\\\\*")
-           (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1")
-           (format "\\! -path \\*%s\\*"))))))
+         (cons 'exclude
+               (->> expr
+                    (replace-regexp-in-string "\\*" "\\\\*")
+                    (replace-regexp-in-string (rx "/" (group (+ any)) eol) "./\\1")
+                    (format "\\! -path \\*%s\\*"))))))
 
 (defun util/ffip-search-paths (pat)
   "Like `util/ffip-search' but search pattern PAT as path instead."
@@ -61,13 +62,11 @@
    (list (read-string "Enter the search term: ")))
   (util/ffip-search pat t))
 
+;; TODO: This is incomplete
 (defvar util/ffip-debug nil)
 (defvar util/ffip-debug-cmd nil)
 (defun util/ffip-search (&optional pattern search-for-path)
   "Search for PATTERN and list files in the project in a Dired buffer.
-If optional VC or `current-prefix-arg' is non-nil and if the
-project is version controlled (git only for now) then list all
-the files in version control.
 
 Optional SEARCH-FOR-PATH modifies the find behaviour to use
 \"-ipath\" instead of \"-iname\"."
@@ -76,15 +75,20 @@ Optional SEARCH-FOR-PATH modifies the find behaviour to use
          (pattern (pcase pattern
                     ((pred stringp) pattern)
                     (1 (read-string "Enter the search term: "))
-                    ('nil (user-error "Error.  Pattern is required if not called interactively.?"))
+                    ('nil (user-error "Error.  Pattern is required if not called interactively"))
                     (_ pattern)))
-         (root (ffip-project-root))
+         (root (expand-file-name (ffip-project-root)))
          (gitignore (f-join root ".gitignore"))
          (gitignore-open (find-buffer-visiting gitignore))
-         (prune-patterns (-uniq (-concat (mapcar
-                                          (lambda (x) (replace-regexp-in-string "^\\*/\\(.+\\)" "/\\1/" x))
-                                          ffip-prune-patterns)
-                                         '("/env/" "/node_modules/" "/build/" "/dist/"))))
+         ;; NOTE: These are all directories
+         (prune-patterns (-uniq (mapcar
+                                 (lambda (x)
+                                   (replace-regexp-in-string "^\\*/\\(.+\\)"
+                                                             "\\1/" x))
+                                 (-concat ffip-prune-patterns
+                                          '("*/env" "*/node_modules" "*/build" "*/dist")))))
+         ;; (prune-patterns (-concat ffip-prune-patterns
+         ;;                          '("*/env" "*/node_modules" "*/build" "*/dist")))
          excludes)
     (when (f-exists? gitignore)
       (with-current-buffer (find-file-noselect gitignore)

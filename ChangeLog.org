@@ -120,3 +120,7 @@
    - Split the files into spearate packages based on use. Cask doesn't work for
      these. Will have to find an alternative way to compile, perhaps with a
      preloading script with cask.
+
+** [2022-02-03 Thu 18:10]
+   - Added function ~util/update-time-stamp-in-project-files~
+   - Fixed pruning bug in ~util/ffip-search~

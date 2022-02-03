@@ -406,6 +406,30 @@ See `time-stamp-string' for details."
   (time-less-p (encode-time (util/decode-time-stamp A))
                (encode-time (util/decode-time-stamp B))))
 
+(defun util/update-time-stamp-in-project-files (&optional pat)
+  "Update `time-stamp' in all files in project for a given pattern PAT.
+
+Files are given by `util/ffip-search' which excludes certain
+paths and files by default.  See `util/ffip-search' for details."
+  (interactive)
+  (let* ((pat (or pat
+                  (read-from-minibuffer
+                   (format "Enter the file pattern (default %s): " "*")
+                   nil nil nil nil "*")))
+         (files (util/ffip-search pat)))
+    (seq-do (lambda (f)
+              (let ((buf (find-buffer-visiting f)))
+                (if buf
+                    (with-current-buffer buf
+                      (time-stamp)
+                      (basic-save-buffer))
+                  (setq buf (find-file-noselect f))
+                  (with-current-buffer buf
+                    (time-stamp)
+                    (basic-save-buffer)
+                    (kill-buffer)))))
+            files)))
+
 
 ;; `package' functions
 
