@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 27 January 2022 12:52:34 PM IST>
+;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
 ;; Keywords:	helm, org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (util/org) (helm))
@@ -260,8 +260,10 @@ Optional PRED is used to filter the headings."
 (defun util/helm-org-headings-subr (&optional pred)
   "Return all headings with position satisfying PRED.
 
-Primarily a subroutine for `util/helm-org-headings'.  Optional
-PRED defaults to `identity'."
+Primarily a subroutine for `util/helm-org-headings'.
+
+Optional PRED is used to filter the headings.  Defaults to
+`identity'."
   (let ((in-cache (member (buffer-name)
                           (a-keys (util/org-collected-headings
                                    #'util/org-default-heading-filter-p
@@ -269,6 +271,7 @@ PRED defaults to `identity'."
         (pred (or pred #'identity))
         headings)
     (if in-cache
+        ;; FIXME: Perhaps use `util/org-filter-from-headings-cache' instead
         (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
           (setq headings (-filter #'identity
                                   (mapcar (lambda (x) (when (funcall pred (car x))
@@ -298,23 +301,23 @@ PRED defaults to `identity'."
     new-map)
   "Keymap for `util/helm-org-headings'.")
 
-(defun util/helm-org-headings (&optional pred)
+(defun util/helm-org-headings (&optional pred headings)
   "Navigate through headings in an org buffer with `helm'.
 With optional predicate PRED, show only those headings which satisfy the
 predicate."
   (interactive)
   (util/with-org-mode
    (setq util/helm-org-kill-append nil)
-   (helm :sources (helm-build-sync-source "Org Headings"
-                    :candidates (lambda ()
-                                  (with-helm-current-buffer
-                                    (util/helm-org-headings-subr pred)))
-                    :follow 1
-                    :action (helm-make-actions
-                             "Show Entry" 'util/helm-org-show
-                             "Show Entry With Path" 'util/helm-org-show-outline
-                             "Copy Link to Entry" 'util/helm-org-copy-link-to-entry)
-                    :keymap util/helm-org-headings-map))))
+   (let ((headings (or headings (with-helm-current-buffer
+                                  (util/helm-org-headings-subr pred)))))
+     (helm :sources (helm-build-sync-source "Org Headings"
+                      :candidates headings
+                      :follow 1
+                      :action (helm-make-actions
+                               "Show Entry" 'util/helm-org-show
+                               "Show Entry With Path" 'util/helm-org-show-outline
+                               "Copy Link to Entry" 'util/helm-org-copy-link-to-entry)
+                      :keymap util/helm-org-headings-map)))))
 
 (defun util/helm-org-get-source-for-buf (buf &optional pred)
   "Subroutine to get helm sources from an org buffer BUF.

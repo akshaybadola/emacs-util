@@ -124,3 +124,23 @@
 ** [2022-02-03 Thu 18:10]
    - Added function ~util/update-time-stamp-in-project-files~
    - Fixed pruning bug in ~util/ffip-search~
+
+** [2022-02-23 Wed 19:38]
+   - Added function ~util/url-buffer-string~ in ~util-core.el~. And somehow the
+     bug for ~util/ffip-search~ was still there. I'm not sure what's going on
+     with the find command. Perhaps different switches.
+   - In file ~util-org.el~
+     - Rearranged symbols so that variables are on top.
+     - The ~predicate~ works differently now for ~util/org-collected-headings~.
+       The headings are collected without any filter and any predicate is
+       applied after collection. Earlier ~util/org-collect-headings-subr~ would
+       collect headings based on a predicate.
+       Dependencies to those functions also changed.
+     - ~util/org-collect-headings-subr~ now takes no arguments.
+     - ~util/org-default-heading-filter-p~ now checks for custom-id and heading length.
+     - New convience functions ~util/org-get-beginning-of-link~ and
+       ~util/org-get-bracket-link-bounds~
+     - New command ~util/org-convert-link-to-description~
+   - In file ~util-helm-org.el~
+     - ~util/helm-org-headings~ now takes an optional ~headings~ argument to
+       display the headings.

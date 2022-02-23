@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 27 January 2022 12:52:38 PM IST>
+;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 ;; Package-Requires: ((a "0.1.1") (dash "2.17.0")
@@ -36,6 +36,7 @@
 
 
 (require 'f)
+(require 's)
 (require 'util/core "util-core.el")
 (require 'find-file-in-project)         ; Only used for `ffip-project-root'
 
@@ -103,17 +104,19 @@ Optional SEARCH-FOR-PATH modifies the find behaviour to use
         (setq prune-patterns (-keep (lambda (x) (and (eq (car x) 'prune) (cdr x))) prune-patterns))
         (unless gitignore-open
           (kill-buffer (current-buffer)))))
-    (let* ((cmd (format "find %s %s \\( %s \\) %s %s -type f -print"
-                        root
-                        (format " \\( %s \\) -prune -o " (string-join prune-patterns " -o "))
-                        (string-join excludes " ")
-                        (if search-for-path "-ipath" "-iname")
-                        (if (string-match-p "\\*" pattern)
-                            (replace-regexp-in-string "\\*" "\\\\*" pattern)
-                          (concat "\\*" pattern "\\*"))))
+    (let* ((prune (format " \\( %s \\) " (string-join
+                                          (mapcar (lambda (x) (format "-path '*%s*'" x))
+                                                  prune-patterns)
+                                          " -o ")))
+           (name-or-path (if search-for-path "-ipath" "-iname"))
+           (excludes (if excludes (format "\\( %s \\)" (string-join excludes " ")) ""))
+           (pattern (if (string-match-p "\\*" pattern)
+                        (replace-regexp-in-string "\\*" "\\\\*" pattern)
+                      (concat "\\*" pattern "\\*")))
+           (cmd (s-lex-format "find ${root} ${prune} -prune -o ${name-or-path} ${excludes} ${pattern} -type f -print"))
            (file-list (split-string (shell-command-to-string cmd)))
            buf)
-      (unless (and (boundp 'util/ffip-debug) util/ffip-debug)
+      (when util/ffip-debug
         (setq util/ffip-debug-cmd cmd))
       (cond ((and ci file-list)
              (setq buf (dired-internal-noselect

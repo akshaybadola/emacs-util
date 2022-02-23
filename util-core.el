@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 27 January 2022 12:52:46 PM IST>
+;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
@@ -654,9 +654,10 @@ other return types or should convert to appropriate type."
 The REGEXP pattern is asked on the prompt by default.
 
 See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
-  (interactive (list (let ((phrase (thing-at-point 'symbol t)))
-                       (read-from-minibuffer (format "Regexp (default %s): " phrase)
-                                             nil nil nil nil phrase))))
+  (interactive (list (let* ((phrase (thing-at-point 'symbol t))
+                            (read (read-from-minibuffer (format "Regexp (default %s): " phrase)
+                                                        nil nil nil nil phrase)))
+                       (if (or (not read) (string-empty-p read)) phrase read))))
   (unless (stringp regexp)
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
@@ -847,6 +848,15 @@ Stop words list is `util/stop-words'."
                  (split-string string))
     (string-join (reverse words) " ")))
 
+
+;; url
+
+(defun util/url-buffer-string (buf)
+  "Retrieve string from a buffer retrieved by `url-*' function."
+  (with-current-buffer buf
+    (goto-char (point-min))
+    (re-search-forward "\r?\n\r?\n")
+    (buffer-substring-no-properties (point) (point-max))))
 
 ;; Buffers and windows
 

@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 27 January 2022 12:52:23 PM IST>
+;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -76,6 +76,56 @@ group match gives the link and the second the description.")
                     rjsx-mode fundamental-mode text-mode)
   "Modes for which org should do a simple regexp search.
 Used by `util/org-execute-simple-regexp-search'.")
+
+(defvar util/org-execute-search-prefix-arg-behaviour-alist nil
+  "`util/org-execute-org-heading-search-*' functions to call for \\[universal-argument].
+
+This should be an alist of type '(number . function), where the
+number corresponds to the prefix argument converted to integer.")
+
+(defvar util/org-execute-search-ignore-case t
+  "Ignore case for headings search.")
+
+(defvar util/org-heading-props-filter-p nil
+  "Additional property filter to apply to headings while collecting them.
+Used by `util/org-collect-headings-subr'")
+
+;; TODO: This should be a hash table
+;;       - Optionally collect headings at startup
+;;       - Decouple cache from functions so same function
+;;         can be used with multiple caches
+(defvar util/org-collect-headings-cache nil
+  "Alist of collected headings cache.
+The cache is of the form `(,heading ,author ,buf ,custom-id ,pos).")
+(defvar util/org-collect-headings-files nil
+  "List of files from which to collect headings.")
+(defvar util/org-collect-files-modtimes nil
+  "Modification times of buffers from which to collect headings.")
+(defvar util/org-collect-buffers nil
+  "List of buffers from which to collect headings.")
+
+;; Was initially '(subtree buffer research-files)
+(defvar util/org-insert-link-to-heading-prefix-behaviour '(((4) . buffer) ((16) . subtree))
+  "Behaviour of `current-prefix-arg' for `util/org-insert-link-to-heading'.
+
+A list of symbols `subtree' `research-files' `buffer'.  The first
+element in the list corresponds to single universal prefix
+argument `C-u'.  The second element to two universal prefix
+arguments and the last one to no argument.")
+
+(defvar util/org-insert-link-always-add-refs nil
+  "Always offer references in `util/org-insert-link-to-heading'.
+
+See `util/org-insert-link-to-heading' for details.")
+
+(defvar util/org-use-headings-cache t
+  "Whether to use headings from `util/org-headings-cache'.
+Cache is returned from `util/org-collected-headings' and is
+auto updated if the file has changed on disk.  See
+`util/org-collected-headings'.")
+
+(defvar util/org-copy-link-append nil
+  "Internal variable for `util/org-copy-link-to-heading'.")
 
 (defmacro util/with-org-mode (&rest body)
   "Call form BODY only if major-mode is `org-mode'."
@@ -395,16 +445,6 @@ suffices.  This function does just that.  Adapated from
     ;; return t to indicate that the search is done.
     t)))
 
-(defvar util/org-execute-search-prefix-arg-behaviour-alist nil
-  "`util/org-execute-org-heading-search-*' functions to call for \\[universal-argument].
-
-This should be an alist of type '(number . function), where the
-number corresponds to the prefix argument converted to integer.")
-
-(defvar util/org-execute-search-ignore-case t
-  "Ignore case for headings search.")
-
-
 ;; FIXME: This is a bad hack. This should be fixed from `org-link-open'
 (defun util/org-execute-search-other-window (args)
   "Execute search in other window.
@@ -721,14 +761,10 @@ used as of now."
   "Check for duplicate custom ids in an org buffer and fix them."
   (debug))
 
-(defvar util/org-heading-props-filter-p nil
-  "Additional property filter to apply to headings while collecting them.
-Used by `util/org-collect-headings-subr'")
-(defun util/org-collect-headings-subr (predicate)
+(defun util/org-collect-headings-subr ()
   "Return headings in an org buffer.
-Select only those headings which satisfy the unary PREDICATE.
-See `util/org-default-heading-filter-p' for an example of such a
-predicate."
+
+The return value is a list of 5 tuple (heading author buf custom-id pos)."
   (let (headings)
     (save-excursion
       (goto-char (point-max))
@@ -740,8 +776,7 @@ predicate."
                (custom-id (or (org-element-property :CUSTOM_ID el) ""))
                (pos (org-element-property :begin el))
                (buf (buffer-name)))
-          (when (funcall predicate heading)
-            (push `(,heading ,author ,buf ,custom-id ,pos) headings))))
+          (push `(,heading ,author ,buf ,custom-id ,pos) headings)))
       headings)))
 
 (defun util/org-get-headings-from-cache (bufname)
@@ -752,23 +787,8 @@ predicate."
                          bufname)))
     (a-get util/org-collect-headings-cache bufname)))
 
-;; TODO: This should be a hash table
-;;       - Optionally collect headings at startup
-;;       - Decouple cache from functions so same function
-;;         can be used with multiple caches
-(defvar util/org-collect-headings-cache nil
-  "Alist of collected headings cache.
-The cache is of the form `(,heading ,author ,buf ,custom-id ,pos).")
-(defvar util/org-collect-headings-files nil
-  "List of files from which to collect headings.")
-(defvar util/org-collect-files-modtimes nil
-  "Modification times of buffers from which to collect headings.")
-(defvar util/org-collect-buffers nil
-  "List of buffers from which to collect headings.")
-
 (defun util/org-collect-setup ()
   "Setup the `util/org-collected-headings' variables."
-  (interactive)
   (setq util/org-collect-buffers
         (mapcar #'find-file-noselect util/org-collect-headings-files))
   (setq util/org-collect-files-modtimes
@@ -778,16 +798,34 @@ The cache is of the form `(,heading ,author ,buf ,custom-id ,pos).")
                               (file-attributes (buffer-file-name buf)))))
          util/org-collect-buffers)))
 
+;; TODO: IMPORTANT
+;;
+;;       There's confusion over how the cache is initially stored. I think
+;;       I'm filtering the headings with `util/org-default-heading-filter-p'.
+;;       Which may make it difficult when performing more general searches.
+;;       1. I should cache all headings.
+;;       2. Filter headings based on requirements.
+
 ;; TODO: Add to cache as current buffer updates.
+;;       Perhaps can add to `org-insert-heading-hook'
+;;       However, there's no `org-delete-heading-hook'
+;; TODO: Lookup in cache if buffer is modified
 (defun util/org-collected-headings (predicate &optional bufname no-refresh)
-  "Return headings in an org buffer satisfying unary PREDICATE.
-See `util/org-default-heading-filter-p' for an example of such a
-predicate.
+  "Return a collection of org headings `util/org-collect-buffers'.
+
+The headings are cached in `util/org-collect-headings-cache' for
+faster retrieval and the cache is updated if the buffer is
+modified on disk.  See `util/org-use-headings-cache' for the
+structure of the cache.
+
+The PREDICATE is applied on each entry of the cache.
 
 With optional BUFNAME, return headings only for that buffer.
 
 Optional non-nil NO-REFRESH implies to retrieve only from cache
-if `util/org-use-headings-cache' is non-nil."
+if `util/org-use-headings-cache' is non-nil.
+
+The return value is an alist of buffer name and headings."
   ;; check mod times of buffers or files
   ;; If updated, add to cache
   ;; Search only in entry cache
@@ -806,35 +844,39 @@ if `util/org-use-headings-cache' is non-nil."
                      (mapcar #'buffer-name util/org-collect-buffers)))
          (headings (mapcar (lambda (bufname)
                              (cons bufname
-                                   (progn
-                                     ;;  buf is missing from cache
-                                     (unless no-refresh
-                                       (when (or (not (a-get util/org-collect-headings-cache bufname))
-                                                 ;;  cached-buf-modtime < current-buf-modtime
-                                                 (time-less-p (a-get util/org-collect-files-modtimes
-                                                                     bufname)
-                                                              (a-get modtimes bufname)))
-                                         (setq util/org-collect-headings-cache
-                                               ;; update cache
-                                               (a-assoc util/org-collect-headings-cache
-                                                        bufname
-                                                        (with-current-buffer bufname
-                                                          (util/org-collect-headings-subr predicate)))
-                                               util/org-collect-files-modtimes
-                                               ;; update modtimes
-                                               (a-assoc util/org-collect-files-modtimes
-                                                        bufname
-                                                        (a-get modtimes bufname)))))
-                                     (a-get util/org-collect-headings-cache bufname))))
+                                   (-filter
+                                    predicate
+                                    (progn
+                                      ;;  buf is missing from cache
+                                      (unless no-refresh
+                                        (when (or (not (a-get util/org-collect-headings-cache bufname))
+                                                  ;;  cached-buf-modtime < current-buf-modtime
+                                                  (time-less-p (a-get util/org-collect-files-modtimes
+                                                                      bufname)
+                                                               (a-get modtimes bufname)))
+                                          ;; update cache
+                                          (setq util/org-collect-headings-cache
+                                                (a-assoc util/org-collect-headings-cache
+                                                         bufname
+                                                         (with-current-buffer bufname
+                                                           (util/org-collect-headings-subr))))
+                                          ;; update modtimes
+                                          (setq util/org-collect-files-modtimes
+                                                (a-assoc util/org-collect-files-modtimes
+                                                         bufname
+                                                         (a-get modtimes bufname)))))
+                                      (a-get util/org-collect-headings-cache bufname)))))
                            bufnames)))
     headings))
 
-(defun util/org-default-heading-filter-p (heading)
+(defun util/org-default-heading-filter-p (cache-entry)
   "Default predicate for `util/org-collect-headings-subr'.
-Compares length of HEADING with
+Compares length of heading in a CACHE-ENTRY with
 `util/org-min-collect-heading-length'."
-  (> (length (split-string heading))
-     util/org-min-collect-heading-length))
+  (let ((heading (car cache-entry)))
+    (or (> (length (nth 3 cache-entry)) 0)
+        (> (length (split-string heading))
+           util/org-min-collect-heading-length))))
 
 (defun util/org-get-text-links (link-re narrow &optional file-prefix)
   "Get all the links matching LINK-RE in an org buffer.
@@ -859,15 +901,6 @@ current buffer so that it becomes an absolute link."
                                 (substring-no-properties (match-string 1))))))
               (push elem temp))))))
     temp))
-
-;; Was initially '(subtree buffer research-files)
-(defvar util/org-insert-link-to-heading-prefix-behaviour '(((4) . buffer) ((16) . subtree))
-  "Behaviour of `current-prefix-arg' for `util/org-insert-link-to-heading'.
-
-A list of symbols `subtree' `research-files' `buffer'.  The first
-element in the list corresponds to single universal prefix
-argument `C-u'.  The second element to two universal prefix
-arguments and the last one to no argument.")
 
 (defun util/org-heading-first-subheading ()
   "Return the point of first subheading if heading has subheadings.
@@ -896,6 +929,25 @@ When in org mode, delete the link text also."
           (delete-region beg end)
         (message "Could not delete the link text")))))
 
+(defun util/org-get-beginning-of-link ()
+  "Return the beginning of a link under point if at a link."
+  (cond ((or (looking-back "\\[\\[\\(.+?\\)" 1)
+             (looking-at "\\[\\[\\(.+?\\)"))
+         (match-beginning 0))
+        ((looking-at "\\(.+?\\)]]")
+         (- (match-beginning 0) 2))
+        (t nil)))
+
+(defun util/org-get-bracket-link-bounds ()
+  "Return the beginning of a link under point if at a link."
+  (let* ((beg (util/org-get-beginning-of-link))
+         (end (when beg
+                (save-excursion
+                  (goto-char beg)
+                  (when (looking-at "\\(.+?\\)\\]]")
+                    (match-end 0))))))
+    `(,beg . ,end)))
+
 (defun util/org-rename-file-under-point (old new &optional name-only quiet)
   "Rename the file under point from OLD to given name NEW.
 Update the org link also when in org mode.
@@ -906,12 +958,7 @@ contracted to file name only.
 With non-nil optional QUIET don't output any messages."
   (save-excursion
     (when (derived-mode-p 'org-mode)
-      (let ((beg (cond ((or (looking-back "\\[\\[\\(.+?\\)" 1)
-                            (looking-at "\\[\\[\\(.+?\\)"))
-                        (match-beginning 0))
-                       ((looking-at "\\(.+?\\)]]")
-                        (- (match-beginning 0) 2))
-                       (t nil)))
+      (let ((beg (util/org-get-beginning-of-link))
             end desc)
         (cond (beg
                (goto-char beg)
@@ -919,9 +966,10 @@ With non-nil optional QUIET don't output any messages."
                  (setq end (match-end 0))
                  (setq desc (substring-no-properties
                              (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1))))
-                 (if name-only
-                     (setq desc (f-filename new))
-                   (setq desc (expand-file-name new))))
+                 (when (string= desc old)
+                   (if name-only
+                       (setq desc (f-filename new))
+                     (setq desc (expand-file-name new)))))
                (delete-region beg end)
                (if (string= old new)
                    (unless quiet (message "New path is same as old path %s" old))
@@ -1027,17 +1075,22 @@ If optional SUBTREE is non-nil, search only in current subtree."
 Description of the link is determined by optional CLIP-FUNC.
 If not given, it defaults to `identity'.
 
-If optional CITATION is non-nil, the headings are gathered for
-only the current buffer and citations within the current
-`doc-root' are searched.  A `doc-root' is an org subtree with the
-non-nil property DOC_ROOT.
+The user is prompted to select a heading via `ido'.  The choice
+of selections depends on the optional arguments.
 
-When optional REFS is non-nil and an immediate sub-heading of
-`doc-root' named \"References\" exists, then those are also
-offered as options.
+If optional CITATION is non-nil, existing citations within the
+current subtree and the tree corresponding to `doc-root' are
+searched and are at the top of the selections list.  A `doc-root'
+is an org subtree with the non-nil property DOC_ROOT.  See
+`util/org-get-tree-prop'.
 
-FIXME: CACHE-ONLY is obsolete as the search is done in cache by
-default and the cache is updated as required.
+When optional REFS or `util/org-insert-link-always-add-refs' is
+non-nil and an immediate sub-heading of `doc-root' named
+\"References\" exists, then those are offered as options before
+the rest of the headings but after the in text citations.
+
+When optional CACHE-ONLY is non-nil, the headings cache is not updated.  See
+`util/org-collected-headings' for details.
 
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
@@ -1064,9 +1117,10 @@ See also, `util/org-collect-headings-subr' and
                                                nil cache-only))))
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
-                                 (util/org-collect-headings-subr #'util/org-default-heading-filter-p)))))
+                                 (-filter #'util/org-default-heading-filter-p
+                                          (util/org-collect-headings-subr))))))
          (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
-                                      (save-excursion (outline-back-to-heading (point))))))
+                                      (save-excursion (outline-back-to-heading t) (point)))))
          ;; org links in current subtree text
          (subtree-text-links (when citation
                                (let ((temp (util/org-get-text-links text-link-re t)))
@@ -1089,7 +1143,7 @@ See also, `util/org-collect-headings-subr' and
                                               (-uniq temp)))))))
          ;; Get links from subtree in references section of doc root if it
          ;; exists
-         (references (when refs
+         (references (when (or util/org-insert-link-always-add-refs refs)
                        (save-excursion
                          (if doc-root
                              (goto-char doc-root)
@@ -1102,7 +1156,7 @@ See also, `util/org-collect-headings-subr' and
                                 (save-restriction
                                   (org-narrow-to-subtree)
                                   (narrow-to-region sub (point-max))
-                                  (util/org-collect-headings-subr #'identity)))))))
+                                  (util/org-collect-headings-subr)))))))
          ;; `subtree-text-links' at the beginning of selections
          ;; then `doc-root-text-links'
          ;; then `references'
@@ -1169,6 +1223,8 @@ cache on buffer modification."
   (interactive)
   (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t t))
 
+;; FIXME: Need to update cache first if asked or update by default and don't
+;;        update when asked
 (defun util/org-filter-from-headings-cache (cache-name predicate &optional file-or-buffer)
   "Filter headings from `util/org-collect-headings-cache' with  CACHE-NAME.
 
@@ -1179,14 +1235,16 @@ FILE-OR-BUFFER must be in `util/org-collect-buffers'."
   (when cache-name
     (user-error "Multiple caches not implemented yet."))
   (let ((cache (if file-or-buffer
-                   (a-get util/org-collect-headings-cache
-                          (pcase (or (get-buffer file-or-buffer)
-                                     (and (f-exists? file-or-buffer)
-                                          (find-file-noselect file-or-buffer)))
-                            ((and buf) (buffer-name buf))))
-                 (apply #'-concat (a-vals util/org-collect-headings-cache)))))
-    (-filter (lambda (x) (funcall predicate x))
-             (or cache (apply #'-concat (a-vals util/org-collect-headings-cache))))))
+                   (util/org-collected-headings
+                    predicate
+                    (pcase (or (get-buffer file-or-buffer)
+                               (and (f-exists? file-or-buffer)
+                                    (find-file-noselect file-or-buffer)))
+                      ((and buf) (buffer-name buf))))
+                 (apply #'-concat (a-vals (util/org-collected-headings predicate))))))
+    ;; (-filter (lambda (x) (funcall predicate x))
+    ;;          (or cache (apply #'-concat (a-vals util/org-collect-headings-cache))))
+    cache))
 
 ;; NOTE: Apparently I'm not using the args as they'd only be used after I eval
 ;;       them like ,heading.
@@ -1242,12 +1300,6 @@ some reason."
            (unless (cl-member old-heading dups :test test)
              (push old-heading dups))
            (push item dups))))))
-
-(defvar util/org-use-headings-cache t
-  "Whether to use headings from `util/org-headings-cache'.
-Cache is returned from `util/org-collected-headings' and is
-auto updated if the file has changed on disk.  See
-`util/org-collected-headings'.")
 
 ;; TODO: match headings also which differ in at most 2 words
 ;; TODO: match headings in which one is substring of other
@@ -1330,7 +1382,21 @@ Defaults to `equal'."
      buffers)
     (sort dups (lambda (x y) (string-greaterp (car y) (car x))))))
 
-(defun util/org-copy-link-under-point ()
+(defun util/org-convert-link-to-description ()
+  "Convert link under point to its description.
+
+Link is assumed to be a square bracket link."
+  (interactive)
+  (pcase-let* ((`(,beg . ,end) (util/org-get-bracket-link-bounds))
+               (desc (and beg end
+                          (substring-no-properties
+                           (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1))))))
+    (when desc
+      (delete-region beg end)
+      (goto-char beg)
+      (insert desc))))
+
+(defun util/org-copy-link-under-point (&optional shorten)
   "Copy if there's an org link under point."
   (interactive)
   (util/with-org-mode
@@ -1338,8 +1404,11 @@ Defaults to `equal'."
           (link (org-element-property :raw-link el))
           (fname (buffer-file-name))
           (type (org-element-property :type el))
-          (desc (buffer-substring-no-properties (plist-get (cadr el) :contents-begin)
-                                                (plist-get (cadr el) :contents-end))))
+          (desc (and link fname (buffer-substring-no-properties
+                                 (plist-get (cadr el) :contents-begin)
+                                 (plist-get (cadr el) :contents-end)))))
+     (when (and desc shorten)
+       (setq desc (util/non-stop-words-prefix desc 2)))
      (when (eq (car el) 'link)
        (kill-new (pcase type
                    ((or "custom-id" "fuzzy")
@@ -1350,8 +1419,7 @@ Defaults to `equal'."
 ;; TODO: Perhaps can add a timer to warn user if copying link after long time so
 ;;       that on first copy `util/org-copy-link-append' should be nil. Or the
 ;;       timer could set `util/org-copy-link-append' automatically to nil.
-(defvar util/org-copy-link-append nil)
-(defun util/org-copy-link-to-heading (&optional pref-arg)
+(defun util/org-copy-link-to-heading (&optional pref-arg shorten)
   "Copy link to current heading.
 
 Prefer custom-id but default to fuzzy link.  Optional PREF-ARG
@@ -1366,7 +1434,10 @@ is for checking interactive usage."
          (custom-id (a-get props "CUSTOM_ID"))
          (option (if custom-id (concat "#" custom-id) (concat "*" heading)))
          (filename (buffer-file-name))
-         (link (format "[[%s::%s][%s]]" filename option heading)))
+         (link (format "[[%s::%s][%s]]" filename option
+                       (if shorten
+                           (util/non-stop-words-prefix heading 2)
+                         heading))))
     ;; (message "%s %s %s" heading filename helm-current-source)
     (if pref-arg
         (if util/org-copy-link-append
