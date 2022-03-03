@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Thursday 03 March 2022 09:16:42 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.1
+;; Version:     0.4.2
 
 ;; This file is *NOT* part of GNU Emacs.
 

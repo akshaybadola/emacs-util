@@ -144,3 +144,10 @@
    - In file ~util-helm-org.el~
      - ~util/helm-org-headings~ now takes an optional ~headings~ argument to
        display the headings.
+
+** [2022-03-03 Thu 09:14]
+   - New function ~util/org-get-bracket-link-description~ and updated
+     ~util/org-rename-file-under-point~.
+   - New function ~util/org-rename-file-remove-opening-braces~ and modification
+     to ~util/org-shorten-link-description-to-file-name~
+   - Some more changes to ~util/ffip-search~. It's still buggy though.

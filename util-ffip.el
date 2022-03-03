@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Thursday 03 March 2022 09:15:58 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 ;; Package-Requires: ((a "0.1.1") (dash "2.17.0")
@@ -63,7 +63,7 @@
    (list (read-string "Enter the search term: ")))
   (util/ffip-search pat t))
 
-;; TODO: This is incomplete
+;; TODO: This is incomplete. Still buggy
 (defvar util/ffip-debug nil)
 (defvar util/ffip-debug-cmd nil)
 (defun util/ffip-search (&optional pattern search-for-path)
@@ -109,7 +109,7 @@ Optional SEARCH-FOR-PATH modifies the find behaviour to use
                                                   prune-patterns)
                                           " -o ")))
            (name-or-path (if search-for-path "-ipath" "-iname"))
-           (excludes (if excludes (format "\\( %s \\)" (string-join excludes " ")) ""))
+           (excludes (if excludes (format "\\( %s \\)" (string-join excludes " -a ")) ""))
            (pattern (if (string-match-p "\\*" pattern)
                         (replace-regexp-in-string "\\*" "\\\\*" pattern)
                       (concat "\\*" pattern "\\*")))
@@ -159,20 +159,25 @@ The files are matched with FILE-PATTERN."
   :type 'number
   :group 'util)
 
-(defun util/ffip-grep-git-files (&optional pattern filter-re)
+(defun util/ffip-grep-git-files (&optional arg pattern filter-re)
   "Grep for PATTERN in git staged files.
 
-If optional FILTER-RE is given then filter files based on that
-regexp first."
-  (interactive)
+With one \\[universal-argument], filter files based on FILTER-RE
+first.
+
+With two \\[universal-argument], filter files of current
+extension."
+  (interactive "p")
   (let* ((root (ffip-project-root))
          (phrase (thing-at-point 'symbol t))
          (cmd-output (shell-command-to-string (format "cd %s && git ls-files" root)))
-         (filter-re (if (or filter-re current-prefix-arg)
-                        (util/read-if-nil
-                         filter-re nil
-                         "Restrict grep to files matching regexp: (default all): ")
-                      "."))
+         (filter-re (or filter-re
+                        (pcase arg
+                          (1 ".")
+                          (4 (util/read-if-nil
+                              filter-re nil
+                              "Restrict grep to files matching regexp: (default all): "))
+                          (16 (format "\\.%s$" (-last-item (split-string (buffer-file-name) "\\.")))))))
          (files (if (string-match-p "fatal: not a git" cmd-output)
                     (user-error "%s does not seem to be a git repo" root)
                   (-filter (lambda (x) (string-match-p filter-re x))

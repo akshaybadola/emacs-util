@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Thursday 03 March 2022 09:16:04 AM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -948,43 +948,66 @@ When in org mode, delete the link text also."
                     (match-end 0))))))
     `(,beg . ,end)))
 
-(defun util/org-rename-file-under-point (old new &optional name-only quiet)
+(defun util/org-get-bracket-link-description ()
+  "Return the description of a link under point if at a link."
+  (pcase-let ((`(,beg . ,end) (util/org-get-bracket-link-bounds)))
+    (when (and beg end)
+      (save-excursion
+        (goto-char beg)
+        (substring-no-properties
+         (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1)))))))
+
+(defun util/org-rename-file-under-point (old new &optional desc shorten quiet)
   "Rename the file under point from OLD to given name NEW.
 Update the org link also when in org mode.
 
-When optional NAME-ONLY is non-nil, the link description is
-contracted to file name only.
+When optional DESC is non-nil, the link description is updated to
+DESC.  Otherwise the description for the link remains the same.
 
 With non-nil optional QUIET don't output any messages."
   (save-excursion
     (when (derived-mode-p 'org-mode)
-      (let ((beg (util/org-get-beginning-of-link))
-            end desc)
-        (cond (beg
-               (goto-char beg)
-               (when (looking-at "\\(.+?\\)\\]]")
-                 (setq end (match-end 0))
-                 (setq desc (substring-no-properties
-                             (replace-regexp-in-string "\\[\\[\\|.+?]\\[" "" (match-string 1))))
-                 (when (string= desc old)
-                   (if name-only
-                       (setq desc (f-filename new))
-                     (setq desc (expand-file-name new)))))
-               (delete-region beg end)
-               (if (string= old new)
-                   (unless quiet (message "New path is same as old path %s" old))
-                 (rename-file old new)
-                 (unless quiet (message "Renamed to %s" new)))
-               (if (and desc (not (string= desc old)))
-                   (insert (format "[[%s][%s]]" new desc))
-                 (insert (format "[[%s]]" new))))
-              (t (unless quiet (user-error "Not at an org file link"))))))))
+      (pcase-let ((`(,beg . ,end) (util/org-get-bracket-link-bounds))
+                  (desc (cond ((and shorten (not desc))
+                               (f-filename new))
+                              ((and shorten desc)
+                               (user-error "Both shorten and desc can't be given together."))
+                              (t (or desc new)))))
+        (unless (and beg end)
+          (unless quiet
+            (user-error "Not at an org file link")))
+        (save-excursion
+          (if (string= old new)
+              (unless quiet (message "New path is same as old path %s" old))
+            (rename-file old new)
+            (unless quiet (message "Renamed to %s" new)))
+          (delete-region beg end)
+          (insert (format "[[%s][%s]]" new desc)))))))
 
-(defun util/org-shorten-link-description-to-file-name ()
+(defun util/org-rename-file-remove-opening-braces ()
   "Shorten the link description for an org file link to just the file name."
   (interactive)
-  (let ((uri (plist-get (get-text-property (point) 'htmlize-link) :uri)))
-    (util/org-rename-file-under-point uri uri t t)))
+  (let* ((uri (plist-get (get-text-property (point) 'htmlize-link) :uri))
+         (fname (when (string-match-p "\\(^(.+?)\\)" (f-filename uri))
+                  (string-trim (replace-regexp-in-string "\\(^(.+?)\\)\\(.+\\)" "\\2" (f-filename uri))))))
+    (if fname
+        (util/org-rename-file-under-point uri (f-join (f-dirname uri) fname) fname nil t)
+      (message "Nothing to do here."))))
+
+(defun util/org-shorten-link-description-to-file-name (&optional force)
+  "Shorten the link description for an org file link to just the file name.
+
+If optional FORCE or a \\[universal-argument] is given, then
+shorten even if description is different than the file uri.
+Default is to raise an error."
+  (interactive)
+  (let* ((uri (plist-get (get-text-property (point) 'htmlize-link) :uri))
+         (desc (util/org-get-bracket-link-description))
+         (force (or force current-prefix-arg)))
+    (cond ((string= desc (f-filename uri)))
+          ((or force (string= desc uri))
+           (util/org-rename-file-under-point uri uri nil t t))
+          (t (user-error "Cannot shorten link to filename if descriptio not the same a file uri.")))))
 
 ;; TODO: Keep old name in some undo history, perhaps in a hash table
 (defun util/org-move-file-under-point (call-method &optional newname)
@@ -993,13 +1016,12 @@ Update the org link also when in org mode.
 
 CALL-METHOD is to check for interactive use.
 
+With one \\[universal-argument] the new link description is file
+name only.  By default it is full file path.
+
 If optional NEWNAME is not given then prompt for it."
   (interactive "p")
   (pcase-let* ((link (get-text-property (point) 'htmlize-link))
-               ;; (context (org-element-context))
-               ;; (`(,beg ,end) (if context (list (plist-get (cadr context) :begin)
-               ;;                                 (plist-get (cadr context) :end))
-               ;;                 (list nil nil)))
                (uri (plist-get link :uri))
                (uri (when uri (replace-regexp-in-string "file:" "" (plist-get link :uri))))
                (uri (and link uri (f-exists? uri) uri))
@@ -1032,7 +1054,7 @@ If optional NEWNAME is not given then prompt for it."
                (setq should-rename nil))
               (t (setq should-rename t)))
         (when should-rename
-          (util/org-rename-file-under-point uri newname (= call-method 4)))))))
+          (util/org-rename-file-under-point uri newname nil (= call-method 4)))))))
 
 (defun util/org-get-tree-prop (prop &optional heading)
   "Return point up the tree checking for property PROP.
