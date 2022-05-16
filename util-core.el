@@ -1,11 +1,11 @@
 ;;; util-core.el --- Core utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021
+;; Copyright (C) 2020,2021,2022
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
@@ -406,6 +406,9 @@ See `time-stamp-string' for details."
   (time-less-p (encode-time (util/decode-time-stamp A))
                (encode-time (util/decode-time-stamp B))))
 
+;; TODO: This uses `git ls-files' instead of `util/ffip-search'
+;; TODO: Should update time stamps only in modified files
+;; TODO: What about the version strings?
 (defun util/update-time-stamp-in-project-files (&optional pat)
   "Update `time-stamp' in all files in project for a given pattern PAT.
 
@@ -416,15 +419,18 @@ paths and files by default.  See `util/ffip-search' for details."
                   (read-from-minibuffer
                    (format "Enter the file pattern (default %s): " "*")
                    nil nil nil nil "*")))
-         (files (util/ffip-search pat)))
+         (files (split-string
+                 (shell-command-to-string (format "git ls-files | grep \"%s\"" pat)) "\n" t " ")))
     (seq-do (lambda (f)
               (let ((buf (find-buffer-visiting f)))
                 (if buf
                     (with-current-buffer buf
+                      (copyright-update nil t)
                       (time-stamp)
                       (basic-save-buffer))
                   (setq buf (find-file-noselect f))
                   (with-current-buffer buf
+                    (copyright-update nil t)
                     (time-stamp)
                     (basic-save-buffer)
                     (kill-buffer)))))
@@ -438,8 +444,9 @@ paths and files by default.  See `util/ffip-search' for details."
 Copied from `describe-package-1'.  Returns description of either
 installed PKG or one available in package archives."
   (let* ((desc (or
-                (if (package-desc-p pkg) pkg)
+                (when (package-desc-p pkg) pkg)
                 (cadr (assq pkg package-alist))
+                (when (stringp pkg) )
                 (let ((built-in (assq pkg package--builtins)))
                   (if built-in
                       (package--from-builtin built-in)
@@ -653,6 +660,8 @@ other return types or should convert to appropriate type."
   "`rgrep' for REGEXP in current directory for files with current extension.
 The REGEXP pattern is asked on the prompt by default.
 
+Use `zrgrep' when we're in a `.gz' file.
+
 See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
   (interactive (list (let* ((phrase (thing-at-point 'symbol t))
                             (read (read-from-minibuffer (format "Regexp (default %s): " phrase)
@@ -661,6 +670,7 @@ See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
   (unless (stringp regexp)
     (setq regexp (format "%s" regexp)))
   (let* ((fname (buffer-file-name))
+         (suffix (f-ext fname))
          (dir (file-name-directory fname))
          (case-fold-search t)
          (env-dirs (when current-prefix-arg
@@ -670,10 +680,13 @@ See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
                        (_ nil))))
          (grep-find-ignored-directories
           (-concat env-dirs grep-find-ignored-directories))
-         (files (concat "*." (car (last (split-string fname "\\."))))))
-    (eval-after-load "grep"
-      '(grep-compute-defaults))
-    (rgrep regexp files dir)))
+         (files (if suffix (concat "*." suffix) "*"))
+         (zrgrep-template "find -H <D> <X> -type f <F> -exec zgrep <C> -nH -e <R> \\{\\} +")
+         grep-save-buffers)
+    (eval-after-load "grep" '(grep-compute-defaults))
+    (if (equal suffix "gz")
+        (zrgrep regexp files dir nil zrgrep-template)
+      (rgrep regexp files dir))))
 
 (defun util/multi-occur-in-this-mode ()
   "Show all lines matching REGEXP in buffers with this major mode."

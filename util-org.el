@@ -1,11 +1,11 @@
 ;;; util-org.el --- `org-mode' utilty functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021
+;; Copyright (C) 2018,2019,2020,2021,2022
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 03 March 2022 09:16:04 AM IST>
+;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -60,14 +60,24 @@
   "Regexp for matching an org fuzzy or custom-id text link.
 First group match gives the link and the second the description.")
 
-(defvar util/org-text-link-re
+(defvar util/org-text-http-link-re
   (rx "[" "[" (group (or (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
                               (or "*" "#") (+? any))
                          (regexp "http.+?")))
       "]" "[" (group (+? any)) "]" "]")
   "Regexp for matching a org text link.
-Matches square bracket links or http links in org text.  First
-group match gives the link and the second the description.")
+Matches square bracket file, org (fuzzy/custom-id) or http links
+in org text.  First group match gives the link and the second the
+description.")
+
+(defvar util/org-text-link-re
+  (rx "[" "[" (group (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
+                          (or "*" "#") (+? any)))
+      "]" "[" (group (+? any)) "]" "]")
+  "Regexp for matching a org text link.
+Matches square bracket file, org (fuzzy/custom-id) or http links
+in org text.  First group match gives the link and the second the
+description.")
 
 (defvar util/org-min-collect-heading-length 1)
 
@@ -1056,11 +1066,15 @@ If optional NEWNAME is not given then prompt for it."
         (when should-rename
           (util/org-rename-file-under-point uri newname nil (= call-method 4)))))))
 
-(defun util/org-get-tree-prop (prop &optional heading)
+(defun util/org-get-tree-prop (prop &optional heading top-level)
   "Return point up the tree checking for property PROP.
 PROP is checked at heading or its current parent recursively.
+
 With optional non-nil HEADING, return heading at the point
-instead of point."
+instead of point.
+
+With optinal non-nil TOP-LEVEL, get the point at the top level
+heading if PROP is not found anywhere."
   (save-excursion
     (outline-back-to-heading)
     (if (org-entry-get (point) prop)
@@ -1071,11 +1085,15 @@ instead of point."
         (while (and (not is-doc-root) (not no-doc-root))
           (condition-case nil
               (outline-up-heading 1 t)
-            (error (setq no-doc-root t)))
+            (error (setq no-doc-root (point))))
           (setq is-doc-root (org-entry-get (point) prop)))
-        (and is-doc-root (if heading
-                             (substring-no-properties (org-get-heading t t t t))
-                           (point)))))))
+        (let ((exists (if top-level
+                          (or is-doc-root (and no-doc-root no-doc-root))
+                        is-doc-root)))
+          (and exists
+               (if heading
+                   (substring-no-properties (org-get-heading t t t t))
+                 (point))))))))
 
 (defun util/org-heading-matching-re (re &optional subtree)
   "Goto first heading matching regexp RE.

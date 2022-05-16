@@ -1,11 +1,11 @@
 ;;; util-helm-org.el --- `helm' Utilty functions for `org' buffers. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021
+;; Copyright (C) 2018,2019,2020,2021,2022
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
 ;; Keywords:	helm, org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (util/org) (helm))
@@ -308,8 +308,7 @@ predicate."
   (interactive)
   (util/with-org-mode
    (setq util/helm-org-kill-append nil)
-   (let ((headings (or headings (with-helm-current-buffer
-                                  (util/helm-org-headings-subr pred)))))
+   (let ((headings (or headings (util/helm-org-headings-subr pred))))
      (helm :sources (helm-build-sync-source "Org Headings"
                       :candidates headings
                       :follow 1

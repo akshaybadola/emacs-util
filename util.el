@@ -1,11 +1,11 @@
 ;;; util.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021
+;; Copyright (C) 2020,2021,2022
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 03 March 2022 09:16:42 AM IST>
+;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.2
 
