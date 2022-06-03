@@ -159,3 +159,7 @@
        is ~gz~
    - In ~util-org.el~, new variables ~util/org-text-link-re~ and ~util/org-text-http-link-re~
      - ~util/org-get-tree-prop~ also takes ~top-level~ as an optional argument
+
+** [2022-06-03 Fri 15:37]
+   - Changed ~clip-func~ in ~util/org-insert-citation-to-heading~ to
+     ~util/org-citation-function~
