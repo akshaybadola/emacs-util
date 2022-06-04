@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 03 June 2022 15:37:28 PM IST>
+;; Time-stamp:	<Saturday 04 June 2022 21:09:15 PM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -1150,7 +1150,7 @@ See also, `util/org-collect-headings-subr' and
   (let* ((read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
                         'research-files))
-         (trans-func (or trans-func #'car))
+         (trans-func (or trans-func (lambda (h &rest args) h)))
          (text-link-re util/org-text-link-re)
          (headings (pcase read-from
                      ('buffer (cdar (util/org-collected-headings
