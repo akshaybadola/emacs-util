@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 04 June 2022 21:09:15 PM IST>
+;; Time-stamp:	<Tuesday 07 June 2022 12:02:36 PM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -473,11 +473,12 @@ ARGS is a plist of search arguments."
     (setq win (util/get-or-create-window-on-side))
     (set-window-buffer win (marker-buffer orig-mark))))
 
-(defun util/org-execute-search-goto-point (pt)
+(defun util/org-execute-search-goto-point (pt &optional no-reveal)
   "Goto PT and `org-reveal'."
   (goto-char pt)
   (beginning-of-line)
-  (org-reveal))
+  (unless no-reveal
+    (org-reveal)))
 
 (defun util/org-execute-search-find-pdf-file (args)
   "Open PDF or DJVU file for link if it exists.
@@ -491,10 +492,10 @@ ARGS is a plist of search arguments."
                       (async-shell-command-display-buffer nil))
                   (async-shell-command (format "evince \"%s\"" pdf-file)))
               (find-file pdf-file))
-          (message "PDF file not found on disk")
-          (util/org-execute-search-goto-point pt))
-      (message "No pdf file for link")
-      (util/org-execute-search-goto-point pt))))
+          (util/org-execute-search-goto-point pt)
+          (message "PDF file not found on disk"))
+      (util/org-execute-search-goto-point pt)
+      (message "No pdf file for link"))))
 
 (defun util/org-execute-search-heading-length-subr (words comment-re cookie-re)
   "Return length of intersection of WORDS and org heading at point.
@@ -575,7 +576,6 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
                 (re-search-forward (or custom-id-re title-re) nil t)
               (if custom-id-re
                   (when (re-search-forward custom-id-re)
-                    (org-reveal)
                     (push (list (util/org-execute-search-heading-length-subr
                                  words comment-re cookie-re)
                                 (progn (outline-back-to-heading) (point))
@@ -1542,6 +1542,30 @@ The links are saved in the `kill-ring'."
     (kill-new (string-join (reverse links) "\n"))
     (when mark-active
       (deactivate-mark))))
+
+(defun util/org-insert-heading-from-url (&optional url with-header)
+  "Fetch the title from an optional URL.
+URL is copied from clipboard if not given.
+
+Requires python, and python packages \"bs4\", \"requests\" and
+\"brotli\" to be installed in the python env."
+  (interactive)
+  (util/with-org-mode
+   (let ((url (or url (if (string-match-p
+                             "^http" (aref (url-generic-parse-url (current-kill)) 1))
+                          (current-kill)
+                        (user-error "Last kill is not a URL"))))
+         (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
+     (org-insert-heading-respect-content)
+     (newline)
+     (org-indent-line)
+     (insert (format "- %s" url))
+     (org-edit-headline
+      (string-trim (shell-command-to-string
+                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content).title.text)'"
+                            util/insert-heading-python-executable
+                            (org-element-property :raw-link (org-element-context))
+                            headers)))))))
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.

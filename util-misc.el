@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 February 2022 20:42:07 PM IST>
+;; Time-stamp:	<Tuesday 07 June 2022 12:02:29 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core))
@@ -283,27 +283,6 @@ atoms."
 ;;     ;; write temp file and run process with python
 ;;     ))
 
-
-(defun util/insert-heading-from-url (&optional with-header)
-  "Fetch the title from an optional URL.
-URL is copied from clipboard if not given.
-
-Requires python, and python packages \"bs4\", \"requests\" and
-\"brotli\" to be installed in the python env."
-  (interactive)
-  (util/with-org-mode
-   (org-insert-heading-respect-content)
-   (newline)
-   (org-indent-line)
-   (insert "- ")
-   (yank)
-   (let ((headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
-     (org-edit-headline
-      (string-trim (shell-command-to-string
-                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content).title.text)'"
-                            util/insert-heading-python-executable
-                            (org-element-property :raw-link (org-element-context))
-                            headers)))))))
 
 (provide 'util/misc)
 
