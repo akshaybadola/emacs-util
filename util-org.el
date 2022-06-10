@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 07 June 2022 12:02:36 PM IST>
+;; Time-stamp:	<Friday 10 June 2022 18:20:26 PM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.0
 ;; Package-Requires: ((util/core) (org))
@@ -1551,9 +1551,10 @@ Requires python, and python packages \"bs4\", \"requests\" and
 \"brotli\" to be installed in the python env."
   (interactive)
   (util/with-org-mode
-   (let ((url (or url (if (string-match-p
-                             "^http" (aref (url-generic-parse-url (current-kill)) 1))
-                          (current-kill)
+   (let* ((maybe-killed-url (string-trim (with-temp-buffer (yank) (buffer-string))))
+          (url (or url (if (string-match-p
+                            "^http" (aref (url-generic-parse-url maybe-killed-url) 1))
+                           maybe-killed-url
                         (user-error "Last kill is not a URL"))))
          (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
      (org-insert-heading-respect-content)
@@ -1562,7 +1563,7 @@ Requires python, and python packages \"bs4\", \"requests\" and
      (insert (format "- %s" url))
      (org-edit-headline
       (string-trim (shell-command-to-string
-                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content).title.text)'"
+                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
                             util/insert-heading-python-executable
                             (org-element-property :raw-link (org-element-context))
                             headers)))))))
