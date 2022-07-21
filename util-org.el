@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 10 June 2022 18:20:26 PM IST>
+;; Time-stamp:	<Thursday 21 July 2022 11:52:57 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.0
+;; Version:     0.4.1
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -578,7 +578,7 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
                   (when (re-search-forward custom-id-re)
                     (push (list (util/org-execute-search-heading-length-subr
                                  words comment-re cookie-re)
-                                (progn (outline-back-to-heading) (point))
+                                (progn (outline-back-to-heading t) (point))
                                 (org-entry-get (point) "PDF_FILE"))
                           matches))
                 (while (re-search-forward title-re nil t)
@@ -1563,7 +1563,7 @@ Requires python, and python packages \"bs4\", \"requests\" and
      (insert (format "- %s" url))
      (org-edit-headline
       (string-trim (shell-command-to-string
-                    (format "%s -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
+                    (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
                             util/insert-heading-python-executable
                             (org-element-property :raw-link (org-element-context))
                             headers)))))))
