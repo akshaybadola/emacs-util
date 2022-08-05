@@ -168,3 +168,6 @@
    - Moved ~util/org-insert-heading-from-url~ to ~util-org~.
    - Don't reveal org heading when fetching pdf. Change in
      ~util/org-execute-search-find-pdf-file~.
+
+** [2022-08-05 Fri 08:50]
+   - Decoupled util/org-copy-link functions.

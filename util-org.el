@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 21 July 2022 11:52:57 AM IST>
+;; Time-stamp:	<Friday 05 August 2022 08:51:14 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.1
+;; Version:     0.4.2
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -1469,7 +1469,9 @@ Link is assumed to be a square bracket link."
       (insert desc))))
 
 (defun util/org-copy-link-under-point (&optional shorten)
-  "Copy if there's an org link under point."
+  "Copy if there's an org link under point.
+With optional non-nil SHORTEN, also shorten the dedscription to
+two non stop-words."
   (interactive)
   (util/with-org-mode
    (let* ((el (org-element-context))
@@ -1488,18 +1490,10 @@ Link is assumed to be a square bracket link."
                    (_
                     (format "[[%s][%s]]" link desc))))))))
 
-;; TODO: Perhaps can add a timer to warn user if copying link after long time so
-;;       that on first copy `util/org-copy-link-append' should be nil. Or the
-;;       timer could set `util/org-copy-link-append' automatically to nil.
-(defun util/org-copy-link-to-heading (&optional pref-arg shorten)
-  "Copy link to current heading.
-
-Prefer custom-id but default to fuzzy link.  Optional PREF-ARG
-is for checking interactive usage."
-  (interactive "p")
-  ;; (message "%s %s" helm-org-rifle-occur-results-buffer-name (current-buffer))
-  (when (eq pref-arg 4)
-    (setq util/org-copy-link-append nil))
+(defun util/org-get-link-to-heading-under-point (shorten)
+  "Get link to current heading under point.
+When SHORTEN is non-nil, also shorten the dedscription to two non
+stop-words."
   (let* ((case-fold-search t)
          (heading (org-get-heading t t t t))
          (props (org-entry-properties))
@@ -1510,7 +1504,23 @@ is for checking interactive usage."
                        (if shorten
                            (util/non-stop-words-prefix heading 2)
                          heading))))
-    ;; (message "%s %s %s" heading filename helm-current-source)
+    link))
+
+;; TODO: Perhaps can add a timer to warn user if copying link after long time so
+;;       that on first copy `util/org-copy-link-append' should be nil. Or the
+;;       timer could set `util/org-copy-link-append' automatically to nil.
+(defun util/org-copy-link-to-heading (&optional pref-arg shorten)
+  "Copy link to current heading.
+
+Prefer custom-id but default to fuzzy link.  Optional PREF-ARG
+is for checking interactive usage.
+
+Optional non-nil SHORTEN shortens the link description."
+  (interactive "p")
+  ;; (message "%s %s" helm-org-rifle-occur-results-buffer-name (current-buffer))
+  (when (eq pref-arg 4)
+    (setq util/org-copy-link-append nil))
+  (let ((link (util/org-get-link-to-heading-under-point shorten)))
     (if pref-arg
         (if util/org-copy-link-append
             (progn (kill-append (concat "\n" link) nil)
@@ -1520,28 +1530,30 @@ is for checking interactive usage."
           (message "Killed new link to %s" heading))
       link)))
 
-(defun util/org-copy-links-to-multiple-headings ()
-  "Copy links to all headings in region.
+(defun util/org-get-links-to-multiple-headings (&optional shorten same-level)
+  "Get links to all headings in region.
 
 The links are saved in the `kill-ring'."
-  (interactive)
   (unless (region-active-p)
     (user-error "No region active"))
   (let ((beg (region-beginning))
         (end (region-end))
-        links)
-    (save-restriction
-      (narrow-to-region beg end)
-      (save-excursion
+        level links)
+    (save-excursion
+      (save-restriction
+        (narrow-to-region beg end)
         (goto-char (point-min))
-        (unless (org-at-heading-p)
+        (if (org-at-heading-p)
+            (setq level (org-current-level))
           (outline-next-heading)
-          (push (util/org-copy-link-to-heading) links))
+          (setq level (org-current-level)))
+        (if (org-at-heading-p)
+            (push (util/org-get-link-to-heading-under-point shorten) links)
+          (user-error "No heading in region"))
         (while (outline-next-heading)
-          (push (util/org-copy-link-to-heading) links))))
-    (kill-new (string-join (reverse links) "\n"))
-    (when mark-active
-      (deactivate-mark))))
+          (and (or (not same-level) (and same-level (= (org-current-level) level)))
+               (push (util/org-get-link-to-heading-under-point shorten) links)))))
+    links))
 
 (defun util/org-insert-heading-from-url (&optional url with-header)
   "Fetch the title from an optional URL.
