@@ -171,3 +171,7 @@
 
 ** [2022-08-05 Fri 08:50]
    - Decoupled util/org-copy-link functions.
+
+** [2022-08-21 Sun 11:36]
+   - Added version-updates also in ~util-core~
+     See, ~util/update-time-stamp-in-project-files~ and ~util/increment-version~

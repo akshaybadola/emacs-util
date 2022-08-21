@@ -406,10 +406,44 @@ See `time-stamp-string' for details."
   (time-less-p (encode-time (util/decode-time-stamp A))
                (encode-time (util/decode-time-stamp B))))
 
+(defmacro util/with-open-file-as-needed (file &rest body)
+  (declare (debug t) (indent 1))
+  `(let ((buf (find-buffer-visiting ,file)))
+     (if buf
+         (with-current-buffer buf
+           ,@body
+           (basic-save-buffer))
+       (setq buf (find-file-noselect ,file))
+       (with-current-buffer buf
+         ,@body
+         (basic-save-buffer)
+         (kill-buffer)))))
+
+
+(defun util/increment-version (buf &optional place)
+  "Increment version number in buffer BUF.
+
+Increment at optional PLACE if given, else the last digit is
+incremented.  Only works for numeric versions like \"0.2.0\"."
+  (with-current-buffer buf
+    (let* ((version-re "^;; Version:.+?([0-9\\.]+)")
+           (version (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward
+                       (replace-regexp-in-string
+                        "(" "\\\\("
+                        (replace-regexp-in-string ")" "\\\\)" version-re)))
+                      (save-match-data
+                        (mapcar #'string-to-number
+                                (split-string (substring-no-properties (match-string 1)) "\\.")))))
+           (place (or place (- (length version) 1))))
+      (setf (nth place version) (+ 1 (nth place version)))
+      (replace-match (string-join (mapcar #'number-to-string version) ".") nil nil nil 1))))
+
 ;; TODO: This uses `git ls-files' instead of `util/ffip-search'
 ;; TODO: Should update time stamps only in modified files
 ;; TODO: What about the version strings?
-(defun util/update-time-stamp-in-project-files (&optional pat)
+(defun util/update-time-stamp-in-project-files (&optional pat update-version)
   "Update `time-stamp' in all files in project for a given pattern PAT.
 
 Files are given by `util/ffip-search' which excludes certain
@@ -417,24 +451,45 @@ paths and files by default.  See `util/ffip-search' for details."
   (interactive)
   (let* ((pat (or pat
                   (read-from-minibuffer
-                   (format "Enter the file pattern (default %s): " "*")
-                   nil nil nil nil "*")))
-         (files (split-string
-                 (shell-command-to-string (format "git ls-files | grep \"%s\"" pat)) "\n" t " ")))
+                   (format "Enter the file pattern (default %s): " ".*el$")
+                   nil nil nil nil ".*$")))
+         (modified-files (split-string
+                          (shell-command-to-string
+                           (format "git ls-files -m | grep \"%s\"" pat))
+                          "\n" t " "))
+         (all-files (split-string
+                     (shell-command-to-string
+                      (format "git ls-files | grep \"%s\"" pat))
+                     "\n" t " "))
+         (version-re "^;; Version:.+?([0-9\\.]+)")
+         (version-files (mapcar (lambda (x) (car (split-string x ":")))
+                                (split-string
+                                 (shell-command-to-string
+                                  (format "egrep \"%s\" %s" version-re
+                                          (string-join all-files " ")))
+                                 "\n" t))))
+    ;; Update copyright and `time-stamp' in modified files
     (seq-do (lambda (f)
-              (let ((buf (find-buffer-visiting f)))
-                (if buf
-                    (with-current-buffer buf
-                      (copyright-update nil t)
-                      (time-stamp)
-                      (basic-save-buffer))
-                  (setq buf (find-file-noselect f))
-                  (with-current-buffer buf
-                    (copyright-update nil t)
-                    (time-stamp)
-                    (basic-save-buffer)
-                    (kill-buffer)))))
-            files)))
+              (util/with-open-file-as-needed f
+                (copyright-update nil t)
+                (time-stamp)))
+            modified-files)
+    ;; Update `version' in project files
+    ;; Works only for lisp projects and numerical versions
+    (when (or update-version current-prefix-arg)
+      (if (= (length version-files) 1)
+          (util/with-open-file-as-needed (car version-files)
+            (copyright-update nil t)
+            (time-stamp)
+            (util/increment-version (current-buffer)
+                                    (and current-prefix-arg (numberp current-prefix-arg))))
+        (seq-do (lambda (f)
+                  (util/with-open-file-as-needed f
+                    (util/increment-version (current-buffer)
+                                            (and current-prefix-arg (numberp current-prefix-arg)))))
+                modified-files)))))
+
+
 
 
 ;; `package' functions
@@ -875,7 +930,9 @@ Stop words list is `util/stop-words'."
 
 (defun util/hidden-buffers (&optional regexp pred n)
   "Get all hidden buffers matching REGEXP.
-Optional REGEXP can be left in case all buffers are returned.
+Optional REGEXP can be left in case all buffers are to be
+returned.
+
 Hidden buffers are those which start with a space.  With optional
 PRED, call the function PRED on each buffer and return on those
 on which PRED returns non-nil.  When optional N is given, return
