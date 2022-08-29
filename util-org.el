@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 05 August 2022 08:51:14 AM IST>
+;; Time-stamp:	<Monday 29 August 2022 13:59:20 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.2
+;; Version:     0.4.3
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -58,7 +58,8 @@
                           (or "*" "#") (+? any)))
       "]" "[" (group (+? any)) "]" "]")
   "Regexp for matching an org fuzzy or custom-id text link.
-First group match gives the link and the second the description.")
+First group match gives the file+link and the second the
+description.")
 
 (defvar util/org-text-http-link-re
   (rx "[" "[" (group (or (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
@@ -382,9 +383,10 @@ Derived from `org-link-open'."
                        (let ((path-2 (org-element-property :search-option link)))
                          (if (or (string-match-p "^#.+" path-2) "custom-id"
                                  (string-match-p "^\\*.+" path-2) "fuzzy")
-                             (progn (org-link-search path-2 nil t)
-                                    `(:file ,path :point ,(point) :path ,path-2))
-                           (user-error "Not and org link %s" path-2))))))))))))
+                             ;; (progn (org-link-search path-2 nil t)
+                             (let ((pt (util/org-execute-customid-or-max-heading-match-search path-2 t nil t)))
+                               `(:file ,path :point ,pt :path ,path-2))
+                           (user-error "Not at an org link %s" path-2))))))))))))
 
 (defun util/org-find-references (nlines)
   "`occur' for references under point in `util/org-collect-headings-files'.
@@ -514,21 +516,34 @@ See the above function for COMMENT-RE and COOKIE-RE."
                                   (funcall func)
                                   (split-string))))))
 
+;; TODO: Not sure how to handle prefix-args
+;;       - In `util/org-link-get-target-for-internal', this function is called
+;;         and any prefix argument if it exists when it's called is passed along.
+;;         In those cases if FIRST-MATCH is nil, then PDF will be opened.
+;;       - However, we want the prefix argument to open PDF files when this
+;;         function is executed from a hook like `org-execute-file-search-functions'
+;;       - The current fix requires FIRST-MATCH and NO-REVEAL to be non-nil
+;;         by the calling functions
+;;
 ;; TODO: Maybe in case there are multiple matches, list all
 ;;
 ;; FIXME: While this functionality is correct, the behaviour that I want, that
 ;;        is, for `C-u-C-u-C-o' to open the link from even same file in a
 ;;        different window (which doesn't work right now)
 (defun util/org-execute-customid-or-max-heading-match-search
-    (str &optional first-match full-match)
+    (str &optional first-match full-match no-reveal)
   "Return match for either custom-id or org heading.
 
 With optional FIRST-MATCH non-nil return the first regexp match
-and don't search any further.
+and don't search any further.  Don't execute any function from
+`util/org-execute-search-prefix-arg-behaviour-alist' either.
 
 When optional FULL-MATCH is non-nil match for the full heading.
 Default is to search for 3 words and then select the heading with
 the max match.
+
+With non-nil optional NO-REVEAL, do not call `org-reveal' after
+finding the entry.
 
 If the link is for a custom-id then search for that else if it's
 a fuzzy link then search for a match for minimum three words of
@@ -573,7 +588,8 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
             (widen)
             (goto-char (point-min))
             (if first-match
-                (re-search-forward (or custom-id-re title-re) nil t)
+                ;; Only one match
+                (setq matches (re-search-forward (or custom-id-re title-re) nil t))
               (if custom-id-re
                   (when (re-search-forward custom-id-re)
                     (push (list (util/org-execute-search-heading-length-subr
@@ -602,7 +618,8 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
                   (funcall func `(:buffer ,buf :arg ,parg :pt ,pt :pdf-file ,pdf-file))
                 (goto-char pt)
                 (beginning-of-line)
-                (org-reveal)))))
+                (unless no-reveal
+                  (org-reveal))))))
         matches))))
 
 (defun util/org-remove-all-drawers (&optional buf)

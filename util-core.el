@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
+;; Time-stamp:	<Monday 29 August 2022 13:59:20 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.0
+;; Version:     0.4.1
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -444,15 +444,20 @@ incremented.  Only works for numeric versions like \"0.2.0\"."
 ;; TODO: Should update time stamps only in modified files
 ;; TODO: What about the version strings?
 (defun util/update-time-stamp-in-project-files (&optional pat update-version)
-  "Update `time-stamp' in all files in project for a given pattern PAT.
+  "Update `time-stamp' in files in project for a given pattern PAT.
 
-Files are given by `util/ffip-search' which excludes certain
-paths and files by default.  See `util/ffip-search' for details."
+For all modified files, update `time-stamp' if it exists in file.
+
+Files are given by a shell command \"git ls-files\" which excludes certain
+paths and files by default.
+
+If optional UPDATE-VERSION or `current-prefix-arg' is non-nil,
+update the version also."
   (interactive)
   (let* ((pat (or pat
-                  (read-from-minibuffer
-                   (format "Enter the file pattern (default %s): " ".*el$")
-                   nil nil nil nil ".*$")))
+                  (let ((pat (read-from-minibuffer
+                              (format "Enter the file pattern (default %s): " ".*el$"))))
+                    (if (string-empty-p pat) ".*el$" pat))))
          (modified-files (split-string
                           (shell-command-to-string
                            (format "git ls-files -m | grep \"%s\"" pat))
@@ -614,12 +619,12 @@ argument ALL, return dependent packages from archives also (not implemented)."
 (defun util/package-top-level-packages (&optional sort-by order)
   "Return list of packages which are not a dependency of any other package.
 
-Optional SORT-BY specifies how to sort-by the returned list.  If
-'time then sort by installed date.  Return alphabetically sorted
-by default.
+Optional SORT-BY is a symbol specifies how to sort-by the
+returned list.  If it's `time' then sort by installed date.
+Return alphabetically sorted by default.
 
-Optioanl ORDER specifies whether to sort-by in 'ascending or
-'descending order."
+Optional ORDER is a symbol which specifies whether to sort-by in
+`ascending' or `descending' order."
   (let* ((packages (-non-nil (mapcar (lambda (x)
                       (unless (util/package-required-by (car x)) (car x)))
                                      package-alist))))

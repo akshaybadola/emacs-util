@@ -175,3 +175,11 @@
 ** [2022-08-21 Sun 11:36]
    - Added version-updates also in ~util-core~
      See, ~util/update-time-stamp-in-project-files~ and ~util/increment-version~
+
+** [2022-08-29 Mon 13:49]
+   - In ~util-core~
+     + Fixed empty pattern input in ~util/update-time-stamp-in-project-files~
+   - In ~util-org~
+     + Added ~no-reveal~ in ~util/org-execute-customid-or-max-heading-match-search~
+     + ~util/org-link-get-target-for-internal~ now gets ~single-match~ so as not
+       to invoke the ~util/org-execute-search-prefix-arg-behaviour-alist~ behaviour
