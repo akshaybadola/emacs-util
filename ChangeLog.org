@@ -183,3 +183,11 @@
      + Added ~no-reveal~ in ~util/org-execute-customid-or-max-heading-match-search~
      + ~util/org-link-get-target-for-internal~ now gets ~single-match~ so as not
        to invoke the ~util/org-execute-search-prefix-arg-behaviour-alist~ behaviour
+
+** [2022-09-24 Sat 07:39]
+   - In ~util-core~
+     + Added copy filename only to ~util/dired-copy-full-filename-as-kill~ with
+       prefix argument
+   - In ~util-org~
+     + Fixed a bug that caused an infinite loop with narrowed buffer in
+       ~util/org-get-tree-prop~

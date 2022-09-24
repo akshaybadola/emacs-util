@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Monday 29 August 2022 13:59:20 PM IST>
+;; Time-stamp:	<Saturday 24 September 2022 07:41:08 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.1
+;; Version:     0.4.2
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -104,7 +104,7 @@ nil, then nothing is prefixed to the message."
 
 (defmacro util/measure-time (&rest body)
   "Measure the time it takes to evaluate BODY."
-  (declare (debug t))
+  (declare (debug t) (indent 1))
   `(let ((time (current-time)))
      ,@body
      (message "%.06f" (float-time (time-since time)))))
@@ -112,7 +112,7 @@ nil, then nothing is prefixed to the message."
 (defmacro util/measure-time-n (n &rest body)
   "Measure the time it takes to evaluate BODY.
 Sum over N iterations."
-  (declare (debug t))
+  (declare (debug t) (indent 1))
   `(let ((time (current-time)))
      (dotimes (i ,n)
        ,@body)
@@ -220,7 +220,11 @@ function calls itself a second time."
 ;;        itself may not intersect with region, which is not the same as
 ;;        behaviour with mark. Should fix that.
 (defun util/dired-copy-full-filename-as-kill ()
-  "Copy the full filename at point in `dired'."
+  "Copy the full filename at point in `dired'.
+If a region is active, copy all the files in the region.
+
+With a \\[universal-argument] copy only the filename and not the
+full path."
   (interactive)
   (save-excursion
     (if (region-active-p)
@@ -236,10 +240,14 @@ function calls itself a second time."
 	               (push (dired-get-filename nil t) files)))
             (forward-line 1))
           (when files
+            (when current-prefix-arg
+              (setq files (mapcar #'f-filename files)))
             (setq files (string-join (-remove #'string-empty-p files) "\n"))
             (kill-new files)
             (message "%s" files)))
-      (dired-copy-filename-as-kill 0))))
+      (if current-prefix-arg
+          (dired-copy-filename-as-kill '(4))
+        (dired-copy-filename-as-kill 0)))))
 
 (defun util/dired-custom-sort (arg)
   "Sort the Dired buffer according to ARG.
