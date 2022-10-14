@@ -191,3 +191,8 @@
    - In ~util-org~
      + Fixed a bug that caused an infinite loop with narrowed buffer in
        ~util/org-get-tree-prop~
+
+** [2022-10-14 Fri 09:14]
+   - In ~util-core~ a minor fix to ~util/update-time-stamp-in-project-files~
+   - In ~util-org~ "(citations)" is now "(doc tree)" in
+     ~util/org-insert-link-to-heading~ as it was causing confusion

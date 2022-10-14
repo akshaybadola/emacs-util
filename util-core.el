@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 24 September 2022 07:41:08 AM IST>
+;; Time-stamp:	<Friday 14 October 2022 09:16:02 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.2
+;; Version:     0.4.3
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -481,6 +481,8 @@ update the version also."
                                   (format "egrep \"%s\" %s" version-re
                                           (string-join all-files " ")))
                                  "\n" t))))
+    (when (and (= 1 (length all-files)) version-files)
+      (setq version-files all-files))
     ;; Update copyright and `time-stamp' in modified files
     (seq-do (lambda (f)
               (util/with-open-file-as-needed f

@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 24 September 2022 07:41:08 AM IST>
+;; Time-stamp:	<Friday 14 October 2022 09:16:02 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.4
+;; Version:     0.4.5
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -1203,7 +1203,7 @@ See also, `util/org-collect-headings-subr' and
                                     (when temp
                                       (mapcar (lambda (x)
                                                 (cons (concat (replace-regexp-in-string text-link-re "\\2" (car x))
-                                                              " (citations)")
+                                                              " (doc tree)")
                                                       x))
                                               (-uniq temp)))))))
          ;; Get links from subtree in references section of doc root if it
@@ -1244,7 +1244,7 @@ See also, `util/org-collect-headings-subr' and
          (selected (ido-completing-read prompt selections)))
     (cond ((string-suffix-p " (subtree)" selected)
            (insert (apply #'format "[[%s][%s]]" (reverse (a-get subtree-text-links selected)))))
-          ((string-suffix-p " (citations)" selected)
+          ((string-suffix-p " (doc tree)" selected)
            (insert (apply #'format "[[%s][%s]]" (reverse (a-get doc-root-text-links selected)))))
           ((string-suffix-p " (references)" selected)
            (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
