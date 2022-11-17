@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 14 October 2022 09:16:02 AM IST>
+;; Time-stamp:	<Thursday 17 November 2022 09:04:21 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.5
+;; Version:     0.4.6
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -1574,6 +1574,29 @@ The links are saved in the `kill-ring'."
                (push (util/org-get-link-to-heading-under-point shorten) links)))))
     links))
 
+(defun util/org-insert-list-item-from-url (&optional url with-header)
+  "Fetch the title from an optional URL.
+URL is copied from clipboard if not given.
+
+Requires python, and python packages \"bs4\", \"requests\" and
+\"brotli\" to be installed in the python env."
+  (interactive)
+  (util/with-org-mode
+   (let* ((maybe-killed-url (string-trim (with-temp-buffer (yank) (buffer-string))))
+          (url (or url (if (string-match-p
+                            "^http" (aref (url-generic-parse-url maybe-killed-url) 1))
+                           maybe-killed-url
+                        (user-error "Last kill is not a URL"))))
+         (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
+     (org-insert-item)
+     (insert (format "%s" url))
+     (newline)
+     (org-indent-line)
+     (insert
+      (string-trim (shell-command-to-string
+                    (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
+                            util/insert-heading-python-executable url headers)))))))
+
 (defun util/org-insert-heading-from-url (&optional url with-header)
   "Fetch the title from an optional URL.
 URL is copied from clipboard if not given.
@@ -1595,9 +1618,7 @@ Requires python, and python packages \"bs4\", \"requests\" and
      (org-edit-headline
       (string-trim (shell-command-to-string
                     (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
-                            util/insert-heading-python-executable
-                            (org-element-property :raw-link (org-element-context))
-                            headers)))))))
+                            util/insert-heading-python-executable url headers)))))))
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.

@@ -196,3 +196,6 @@
    - In ~util-core~ a minor fix to ~util/update-time-stamp-in-project-files~
    - In ~util-org~ "(citations)" is now "(doc tree)" in
      ~util/org-insert-link-to-heading~ as it was causing confusion
+
+** [2022-11-17 Thu 09:04]
+   - Added ~util/org-insert-list-item-from-url~ in ~util-org~
