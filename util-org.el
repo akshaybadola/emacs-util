@@ -1,13 +1,13 @@
 ;;; util-org.el --- `org-mode' utilty functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021,2022
+;; Copyright (C) 2018,2019,2020,2021,2022,2023
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 17 November 2022 09:04:21 AM IST>
+;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.6
+;; Version:     0.4.7
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -91,7 +91,7 @@ Used by `util/org-execute-simple-regexp-search'.")
 (defvar util/org-execute-search-prefix-arg-behaviour-alist nil
   "`util/org-execute-org-heading-search-*' functions to call for \\[universal-argument].
 
-This should be an alist of type '(number . function), where the
+This should be an alist of type \\='(number . function), where the
 number corresponds to the prefix argument converted to integer.")
 
 (defvar util/org-execute-search-ignore-case t
@@ -686,11 +686,11 @@ is not used."
 (defun util/org-heading-and-body-bounds (&optional no-metadata)
   "Return bounds of text body if present in org subtree.
 
-Return value is a triple of '(beg end has-body) where beg is the
+Return value is a triple of \\='(beg end has-body) where beg is the
 point at heading, end is the point at end of subtree and
 has-body indicates if any text is present.
 
-If optional NO-METADATA is non-nil then 'beg points to beginning
+If optional NO-METADATA is non-nil then \\='beg points to beginning
 of line after metadata."
   (let* ((beg (progn (save-excursion
                        (unless (org-at-heading-p)
@@ -729,27 +729,31 @@ metadata."
   "Get subtree with text body if heading matches STR."
   (let ((case-fold-search t)
         match)
-    (goto-char (point-min))
-    (and (re-search-forward (concat "^\\*+.+" (regexp-quote str)) nil t)
-         (goto-char (match-beginning 0))
-         (setq match (match-beginning 0)))
-    (unless match
-      (user-error "Could not find match for %s" str))
-    (when match
-      (util/org-narrow-to-heading-and-body)
-      (buffer-string))))
+    (util/save-mark-and-restriction
+        (widen)
+      (goto-char (point-min))
+      (and (re-search-forward (concat "^\\*+.+" (regexp-quote str)) nil t)
+           (goto-char (match-beginning 0))
+           (setq match (match-beginning 0)))
+      (unless match
+        (user-error "Could not find match for %s" str))
+      (when match
+        (util/org-narrow-to-heading-and-body)
+        (buffer-string)))))
 
 (defun util/org-get-subtree-with-body-for-custom-id (str)
   "Get subtree with text body if CUSTOM_ID matches STR."
   (let ((case-fold-search t)
         match)
-    (goto-char (point-min))
-    (and (re-search-forward (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str)) nil t)
-         (goto-char (match-beginning 0))
-         (setq match (match-beginning 0)))
-    (when match
-      (util/org-narrow-to-heading-and-body)
-      (buffer-string))))
+    (util/save-mark-and-restriction
+        (widen)
+      (goto-char (point-min))
+      (and (re-search-forward (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str)) nil t)
+           (goto-char (match-beginning 0))
+           (setq match (match-beginning 0)))
+      (when match
+        (util/org-narrow-to-heading-and-body)
+        (buffer-string)))))
 
 (defun util/org-kill-new-or-append-subtree ()
   "Kill or append to last kill current subtree.
@@ -829,6 +833,11 @@ The return value is a list of 5 tuple (heading author buf custom-id pos)."
                              (file-attribute-modification-time
                               (file-attributes (buffer-file-name buf)))))
          util/org-collect-buffers)))
+
+;; FIXME: There's something weird going on. All the org buffers are present in
+;;        the cache `util/org-collect-headings-cache', yet their modtimes are
+;;        not present. If all org buffers are present then their modtimes should
+;;        also be present.
 
 ;; TODO: IMPORTANT
 ;;
@@ -1543,10 +1552,10 @@ Optional non-nil SHORTEN shortens the link description."
     (if pref-arg
         (if util/org-copy-link-append
             (progn (kill-append (concat "\n" link) nil)
-                   (message "Appened link %s to last kill" heading))
+                   (message "Appened link %s to last kill" link))
           (kill-new link)
           (setq util/org-copy-link-append t)
-          (message "Killed new link to %s" heading))
+          (message "Killed new link to %s" link))
       link)))
 
 (defun util/org-get-links-to-multiple-headings (&optional shorten same-level)

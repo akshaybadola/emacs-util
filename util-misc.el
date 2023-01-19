@@ -1,13 +1,13 @@
 ;;; util-misc.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022
+;; Copyright (C) 2020,2021,2022,2023
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 07 June 2022 12:02:29 PM IST>
+;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.0
+;; Version:     0.4.1
 ;; Package-Requires: ((util/core))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -200,8 +200,9 @@ can be selected and the braces are ignored and the amount is summed up."
   "Get all files or dirs or both or everything, recursively from PATH.
 Only works where a POSIX \"find\" is available.
 
-F-OR-D can be one of 'f 'files 'd 'dirs or 'both.  If anything
-else, is given, everything is returned, including symlinks etc.
+F-OR-D can be one of \\='f \\='files \\='d \\='dirs or \\='both.
+If anything else, is given, everything is returned, including
+symlinks etc.
 
 Optionally if RECURSE is non-nil recurse into the directories.
 INCLUDE-HIDDEN includes hidden files and files in hidden

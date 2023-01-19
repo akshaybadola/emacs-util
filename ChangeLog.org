@@ -198,4 +198,12 @@
      ~util/org-insert-link-to-heading~ as it was causing confusion
 
 ** [2022-11-17 Thu 09:04]
-   - Added ~util/org-insert-list-item-from-url~ in ~util-org~
+   - In ~util-core~
+     + Added ~util/save-mark-and-restriction~, ~util/compress-newlines~
+   - In ~util-org~
+     + Added ~util/org-insert-list-item-from-url~
+     + Fixed ~util/org-get-subtree-with-body-for-heading-matching-re~
+       and ~util/org-get-subtree-with-body-for-custom-id~ where mark and
+       restriction was not saved.
+   - Some doc string fixes
+   - Added .gitignore

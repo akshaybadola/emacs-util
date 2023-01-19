@@ -1,13 +1,13 @@
 ;;; util-helm-org.el --- `helm' Utilty functions for `org' buffers. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021,2022
+;; Copyright (C) 2018,2019,2020,2021,2022,2023
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Tuesday 17 May 2022 04:14:55 AM IST>
+;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
 ;; Keywords:	helm, org, utility
-;; Version:     0.4.0
+;; Version:     0.4.1
 ;; Package-Requires: ((util/core) (util/org) (helm))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -62,7 +62,7 @@
 
 (defun util/helm-org-show-with-path (pos)
   "Show the org entry including property block at POS.
-POS is a list of '(point buffer)."
+POS is a list of \\='(point buffer)."
   (interactive)
   (pcase-let ((`(,buf ,char) pos))
     (with-current-buffer buf
@@ -257,6 +257,15 @@ Optional PRED is used to filter the headings."
                     :keymap util/helm-org-show-dup-map))))
 
 ;; FIXME: There's redundancy in collection functions
+;; FIXME: This function is filtering based on `util/org-default-heading-filter-p'
+;;        while it should default to `identity'
+
+;; NOTE: There are redundancies in the collection subroutines as mentioned in
+;;       FIXME earlier. That's because the data structures in this subroutine
+;;       and `util/org-collect-headings-subr' are different. At this point we
+;;       need a `plist' CLOS or `cl-struct' or something. Also
+;;       `util/org-collect-headings-cache' should be a hash-table definitely.
+
 (defun util/helm-org-headings-subr (&optional pred)
   "Return all headings with position satisfying PRED.
 
@@ -265,9 +274,9 @@ Primarily a subroutine for `util/helm-org-headings'.
 Optional PRED is used to filter the headings.  Defaults to
 `identity'."
   (let ((in-cache (member (buffer-name)
-                          (a-keys (util/org-collected-headings
-                                   #'util/org-default-heading-filter-p
-                                   (buffer-name)))))
+                          ;; Retrieve from `util/org-collected-headings' in
+                          ;; order to update cache if required
+                          (a-keys (util/org-collected-headings #'identity (buffer-name)))))
         (pred (or pred #'identity))
         headings)
     (if in-cache
@@ -278,6 +287,7 @@ Optional PRED is used to filter the headings.  Defaults to
                                                         ;; (heading . ((buffer-name) (point)))
                                                         `(,(car x) . ,(list (nth 2 x) (-last-item x)))))
                                           cache))))
+      ;; FIXME: More redundant heading collection code
       (save-excursion
         (goto-char (point-max))
         (let ((buf (format "%s" (current-buffer))))

@@ -1,13 +1,13 @@
 ;;; util-core.el --- Core utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022
+;; Copyright (C) 2020,2021,2022,2023
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 14 October 2022 09:16:02 AM IST>
+;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.3
+;; Version:     0.4.4
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -90,6 +90,13 @@
 
 ;; Some macros
 
+(defmacro util/save-mark-and-restriction (&rest body)
+  "Save both mark and restriction while evaluating BODY."
+  (declare (indent 1) (debug t))
+  `(save-excursion
+     (save-restriction
+       ,@body)))
+
 (defmacro util/with-check-mode (mode msg-prefix &rest body)
   "Execute BODY only if `major-mode' equals MODE.
 Otherwise message not in MODE.  MSG-PREFIX can be used to indicate
@@ -133,8 +140,8 @@ Message with MSG-PREFIX if not in MODE."
 The head of the list is the associative element.
 
 Example:
-    (pairs-to-alist '((a b) (b c d) (a d) (e f)))
-     => '((a b d) (b c d) (e f))"
+    (pairs-to-alist \\='((a b) (b c d) (a d) (e f)))
+     => \\='((a b d) (b c d) (e f))"
   (declare (pure t) (side-effect-free t))
   (when (and (consp pairs) (a-assoc pairs))
     (let (newlist)
@@ -251,7 +258,7 @@ full path."
 
 (defun util/dired-custom-sort (arg)
   "Sort the Dired buffer according to ARG.
-ARG can be 'time 'size or nil."
+ARG can be \\='time \\='size or nil."
   (cond ((equal arg "time")
          (setq dired-listing-switches "-alht --group-directories-first")
          (setq dired-actual-switches "-alht --group-directories-first")
@@ -415,6 +422,11 @@ See `time-stamp-string' for details."
                (encode-time (util/decode-time-stamp B))))
 
 (defmacro util/with-open-file-as-needed (file &rest body)
+  "Perform BODY on a buffer or after opening FILE.
+
+If a buffer visiting that file doesn't exist then open FILE and
+close after performing BODY.  Otherwise perform BODY on a buffer
+visiting that FILE."
   (declare (debug t) (indent 1))
   `(let ((buf (find-buffer-visiting ,file)))
      (if buf
@@ -880,6 +892,42 @@ word."
           (replace-match "\\1\\2"))))))
 
 
+(defun util/compress-newlines-subr (num-newlines &optional uniformp)
+  "Subroutine for `util/compress-newlines' and `util/compress-newlines-uniform'.
+Number of newlines as replacement are NUM-NEWLINES.
+
+UNIFORMP specifies to change all consecutive newlines with or
+just those greater than NUM-NEWLINES."
+  (util/save-mark-and-restriction
+      (when (region-active-p)
+        (narrow-to-region (region-beginning) (region-end)))
+    (goto-char (point-min))
+    (while (re-search-forward "\n\\{2,\\}" nil t)
+      (when (or uniformp (> (length (match-string 0)) num-newlines))
+        (replace-match (make-string num-newlines ?\n))))))
+
+(defun util/compress-newlines-uniform ()
+  "Like `util/compress-newlines' but always place the same number of
+newlines between paragraphs."
+  (interactive)
+  (let ((num-newlines (if (and current-prefix-arg
+                               (numberp current-prefix-arg))
+                          current-prefix-arg 2)))
+    (util/compress-newlines-subr num-newlines t)))
+
+(defun util/compress-newlines ()
+  "Replace consecutive newlines in buffer or region.
+If \\[universal-argument] is numeric, then replace with AT MOST
+that many newlines, else 2.
+
+Consecutive newlines more than the specified only are
+replaced.  If a uniform spacing between paragraphs is desired."
+  (interactive)
+  (let ((num-newlines (if (and current-prefix-arg
+                               (numberp current-prefix-arg))
+                          current-prefix-arg 2)))
+    (util/compress-newlines-subr num-newlines)))
+
 ;; Data and string manipulation
 
 (defun util/trim (str)
@@ -935,7 +983,7 @@ Stop words list is `util/stop-words'."
 ;; url
 
 (defun util/url-buffer-string (buf)
-  "Retrieve string from a buffer retrieved by `url-*' function."
+  "Retrieve string from a buffer BUF retrieved by `url-*' function."
   (with-current-buffer buf
     (goto-char (point-min))
     (re-search-forward "\r?\n\r?\n")
