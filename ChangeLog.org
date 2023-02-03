@@ -207,3 +207,18 @@
        restriction was not saved.
    - Some doc string fixes
    - Added .gitignore
+
+** [2023-02-04 Sat 00:06]
+   - In ~util-core~
+     + Fixed bugs with ~util/delete-blank-lines-in-region~
+       and ~util/make-long-line~
+   - In ~util-org~
+     + ~util/org-link-get-target-for-internal~ has no optional ~full-match~ search
+     + ~util/org-get-text-links~ has two additional options to repace text
+       or to make the link local
+     + ~util/org-insert-link-to-heading~ now takes an optional predicate to
+       filter the headings. Also fixed a bug which was caused by ~heading~ and
+       ~entry~ having similar meanings while insertion
+     + ~util/org-insert-citation-to-heading~ and
+       ~util/org-insert-citation-to-heading-from-cache~
+       are obsolete now

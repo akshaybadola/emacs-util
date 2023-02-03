@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
+;; Time-stamp:	<Saturday 04 February 2023 00:12:53 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.7
+;; Version:     0.4.8
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -272,16 +272,16 @@ When optional FUNC is given, apply FUNC to each heading also."
 Return the result of the application.  When ALL-LEVELS is
 non-nil, subheadings at all levels are return.  Default is to
 return only one level lower than the current heading."
-  (save-excursion
-    (save-restriction
-      (org-narrow-to-subtree)
-      (goto-char (point-min))
-      (let ((level (org-outline-level))
-            result)
-        (while (outline-next-heading)
-          (when (or all-levels (= (org-outline-level) (+ level 1)))
-            (push (funcall fn) result)))
-        result))))
+  (util/save-mark-and-restriction
+      (unless (org-before-first-heading-p)
+        (org-narrow-to-subtree)
+        (goto-char (point-min))
+        (let ((level (org-outline-level))
+              result)
+          (while (outline-next-heading)
+            (when (or all-levels (= (org-outline-level) (+ level 1)))
+              (push (funcall fn) result)))
+          result))))
 
 (defun util/org-count-subtree-children ()
   "Return and display the number of headings of current subtree."
@@ -353,7 +353,7 @@ is input from user.  It defaults to PDF_FILE if not given."
          (kill-new (mapconcat #'identity kill-str "\n"))
          (message (format "Copied %s subtrees" count)))))))
 
-(defun util/org-link-get-target-for-internal ()
+(defun util/org-link-get-target-for-internal (&optional full-match)
   "Check if link under point is an internal link and return target.
 
 The return value is a plist of (:file :point :path).
@@ -381,10 +381,10 @@ Derived from `org-link-open'."
               `(:file ,(buffer-file-name) :point ,(point) :path ,path))
              ("file" (with-current-buffer (find-file-noselect path)
                        (let ((path-2 (org-element-property :search-option link)))
-                         (if (or (string-match-p "^#.+" path-2) "custom-id"
-                                 (string-match-p "^\\*.+" path-2) "fuzzy")
+                         (if (or (string-match-p "^#.+" path-2)   ; "custom-id"
+                                 (string-match-p "^\\*.+" path-2)) ; "fuzzy"
                              ;; (progn (org-link-search path-2 nil t)
-                             (let ((pt (util/org-execute-customid-or-max-heading-match-search path-2 t nil t)))
+                             (let ((pt (util/org-execute-customid-or-max-heading-match-search path-2 t full-match t)))
                                `(:file ,path :point ,pt :path ,path-2))
                            (user-error "Not at an org link %s" path-2))))))))))))
 
@@ -919,11 +919,17 @@ Compares length of heading in a CACHE-ENTRY with
         (> (length (split-string heading))
            util/org-min-collect-heading-length))))
 
-(defun util/org-get-text-links (link-re narrow &optional file-prefix)
+(defun util/org-get-text-links (link-re narrow &optional file-prefix replacement make-local)
   "Get all the links matching LINK-RE in an org buffer.
-When NARROW is non-nil, first narrow to subtree.  When optional
-FILE-PREFIX is non-nil, insert the file path for fuzzy links for
-current buffer so that it becomes an absolute link."
+When NARROW is non-nil, first narrow to subtree.
+When optional FILE-PREFIX is non-nil, insert the file path for fuzzy links for
+current buffer so that it becomes an absolute link.
+When optional REPLACEMENT is non-nil, replace the match with REPLACEMENT.
+When optional MAKE-LOCAL is non-nil, remove the file prefix from the link text.
+
+Only one of REPLACEMENT or MAKE-LOCAL can be given."
+  (when (and replacement make-local)
+    (user-error "Only one of REPLACEMENT or MAKE-LOCAL can be given."))
   (let (temp)
     (save-restriction
       (save-excursion
@@ -940,7 +946,15 @@ current buffer so that it becomes an absolute link."
                                         (concat "file:" (buffer-file-name) "::" sub)
                                       sub))
                                 (substring-no-properties (match-string 1))))))
-              (push elem temp))))))
+              (push elem temp))
+            (when replacement
+              (replace-match replacement))
+            (when make-local
+              (let* ((match (substring-no-properties (match-string 1)))
+                     (replacement (save-match-data
+                                    (string-match "\\(.+?\\)::\\(.+\\)" match)
+                                    (match-string 2 match))))
+                (replace-match (concat "[[" replacement "][" (match-string 2) "]]"))))))))
     temp))
 
 (defun util/org-heading-first-subheading ()
@@ -1143,11 +1157,16 @@ If optional SUBTREE is non-nil, search only in current subtree."
             (setq ref (point))))
         ref))))
 
-(defun util/org-insert-link-to-heading (&optional trans-func citation refs cache-only)
+(defun util/org-insert-link-to-heading (&optional predicate transform citation refs cache-only)
   "Insert a link to selected heading.
-Description of the link is generated by the transformation function
-TRANS-FUNC.  The TRANS-FUNC takes (heading, authors, bib-key, file)
-as arguments.  If not given, a function that inserts heading is used.
+
+The headings are filtered with optional PREDICATE.  Defaults to
+`util/org-default-heading-filter-p'.
+
+Description of the link is generated by optional transformation
+function TRANSFORM which takes (heading, authors, bib-key, file)
+as arguments.  If not given, a function that inserts heading is
+used.
 
 The user is prompted to select a heading via `ido'.  The choice
 of selections depends on the optional arguments.
@@ -1169,29 +1188,30 @@ When optional CACHE-ONLY is non-nil, the headings cache is not updated.  See
 For customizing how headings are gathered, change the function
 `util/org-default-heading-filter-p'.
 
-The headings are cached and updated when one of the files in
-`util/org-collect-headings-files' is modified.
+The headings are automatically cached and updated when one of the
+files in `util/org-collect-headings-files' is modified.
 
 See also, `util/org-collect-headings-subr' and
 `util/org-collected-headings'."
   (interactive)
-  (let* ((read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
+  (let* ((predicate (or predicate 'util/org-default-heading-filter-p))
+         (read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
                         'research-files))
-         (trans-func (or trans-func (lambda (h &rest args) h)))
+         (transform (or transform (lambda (h &rest args) h)))
          (text-link-re util/org-text-link-re)
          (headings (pcase read-from
                      ('buffer (cdar (util/org-collected-headings
-                                     #'util/org-default-heading-filter-p
+                                     predicate
                                      (buffer-name) cache-only)))
                      ('research-files (apply #'-concat
                                              (a-vals
                                               (util/org-collected-headings
-                                               #'util/org-default-heading-filter-p
+                                               predicate
                                                nil cache-only))))
                      ('subtree (save-restriction
                                  (org-narrow-to-subtree)
-                                 (-filter #'util/org-default-heading-filter-p
+                                 (-filter predicate
                                           (util/org-collect-headings-subr))))))
          (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
                                       (save-excursion (outline-back-to-heading t) (point)))))
@@ -1259,11 +1279,11 @@ See also, `util/org-collect-headings-subr' and
            (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                            (length doc-root-text-links)))
                   (file (format "file:%s::" (buffer-file-name (current-buffer))))
-                  (heading (nth indx references))
+                  (entry (nth indx references))
                   (custom-id (nth 3 (nth indx references))))
              (if (not (string-empty-p custom-id))
-                 (insert (format "[[%s#%s][%s]]" file custom-id (apply trans-func heading)))
-               (insert (format "[[%s*%s][%s]]" file heading (apply trans-func heading))))))
+                 (insert (format "[[%s#%s][%s]]" file custom-id (apply transform entry)))
+               (insert (format "[[%s*%s][%s]]" file entry (apply transform entry))))))
           (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                              (length doc-root-text-links) (length references)))
                     (file (format
@@ -1272,13 +1292,14 @@ See also, `util/org-collect-headings-subr' and
                              ('research-files (buffer-file-name
                                                (get-buffer (nth 2 (nth indx headings)))))
                              (_ (buffer-file-name (current-buffer))))))
-                    (heading (pcase read-from
+                    (entry (pcase read-from
                                ('research-files (nth indx headings))
                                (_ (nth indx headings))))
-                    (custom-id (nth 3 (nth indx headings))))
+                    (heading (car entry))
+                    (custom-id (nth 3 entry)))
                (if (not (string-empty-p custom-id))
-                   (insert (format "[[%s#%s][%s]]" file custom-id (apply trans-func heading)))
-                 (insert (format "[[%s*%s][%s]]" file heading (apply trans-func heading)))))))))
+                   (insert (format "[[%s#%s][%s]]" file custom-id (apply transform entry)))
+                 (insert (format "[[%s*%s][%s]]" file heading (apply transform entry)))))))))
 
 (defun util/short-heading (heading &rest args)
   "Return first two non stop words of HEADING.
@@ -1306,7 +1327,8 @@ CID is used to extract year.  Rest of the arguments are ignored."
                   (t (format "(%s et al., %s)" (car authors) year)))
             title)))
 
-;; TODO: these two should be `ref-man' functions
+;; TODO: These two should be `ref-man' functions
+;;       With a predicate
 (defun util/org-insert-citation-to-heading ()
   "Insert a citation to a heading.
 Call `util/org-insert-link-to-heading' so that the description of
@@ -1314,14 +1336,18 @@ the link is is first two words of the heading.  The headings are
 filtered by length and only headings greater than
 `util/org-min-collect-heading-length' are searched."
   (interactive)
-  (util/org-insert-link-to-heading util/org-citation-function t t))
+  (util/org-insert-link-to-heading nil util/org-citation-function t t))
+(make-obsolete 'util/org-insert-citation-to-heading "Migrated to `ref-man' package." "util-org 0.4.8")
 
 (defun util/org-insert-citation-to-heading-from-cache ()
   "Insert a citation to a heading from cache only.
 Like `util/org-insert-citation-to-heading' except doesn't rebuild
 cache on buffer modification."
   (interactive)
-  (util/org-insert-link-to-heading (-rpartial #'util/non-stop-words-prefix 2) t t t))
+  (util/org-insert-link-to-heading nil (-rpartial #'util/non-stop-words-prefix 2) t t t))
+(make-obsolete 'util/org-insert-citation-to-heading-from-cache
+               "Not necessary now as the caching is much better."
+               "util-org 0.4.8")
 
 ;; FIXME: Need to update cache first if asked or update by default and don't
 ;;        update when asked

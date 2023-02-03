@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
+;; Time-stamp:	<Saturday 04 February 2023 00:12:53 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.4
+;; Version:     0.4.5
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -92,7 +92,7 @@
 
 (defmacro util/save-mark-and-restriction (&rest body)
   "Save both mark and restriction while evaluating BODY."
-  (declare (indent 1) (debug t))
+  (declare (indent nil) (debug t))
   `(save-excursion
      (save-restriction
        ,@body)))
@@ -803,6 +803,7 @@ newlines from the end also."
     (util/delete-blank-lines-in-region (point-min) (point-max) no-trailing-newline)))
 
 ;; FIXME: Cask gives an error
+;; CHECK: What's the difference between this and `util/compress-newlines'
 (defun util/delete-blank-lines-in-region (&optional beg end no-trailing-newline)
   "Delete all empty lines in region.
 Region is either the active region or optional points BEG and
@@ -812,9 +813,11 @@ newlines from the end also."
   (when current-prefix-arg
     (setq no-trailing-newline t))
   (save-restriction
-    (when (and (called-interactively-p 'any) (region-active-p))
-      (setq beg (region-beginning)
-            end (region-end)))
+    (if (and (called-interactively-p 'any) (region-active-p))
+        (setq beg (region-beginning)
+              end (region-end))
+      (when (called-interactively-p 'any)
+        (message "No active region.")))
     (when (and beg end (< beg end))
       (narrow-to-region beg end)
       (delete-trailing-whitespace)
@@ -870,26 +873,30 @@ Other possible lists are `util/no-capitalize-small' and `util/no-capitalize-big'
         (insert result)))
     result))
 
+;; FIXME: Sometimes it chomps whitespace between last two words
 (defun util/make-long-line ()
   "Convert a paragraph or region to one long line.
 Removes all spaces and newlines with a single space and removes
 space between all isolated punctuation characters and previous
 word."
   (interactive)
-  (save-excursion
-    (save-restriction
-      (when (region-active-p)
-        (narrow-to-region (region-beginning) (region-end))
-        (goto-char (point-min))
-        (when (looking-at "[ \t\n]+")
-          (replace-match ""))
-        (while (re-search-forward "[ \t\n]+" nil t nil)
-          (replace-match " "))
-        (re-search-backward "[ \t\n]+" nil t 1)
-        (replace-match "")
-        (goto-char (point-min))
-        (while (re-search-forward "\\(\\w\\) \\([[:punct:]] \\)" nil t nil)
-          (replace-match "\\1\\2"))))))
+  (util/save-mark-and-restriction
+      (let ((regexp "[ \t\n]+")) ; (if current-prefix-arg "[ \t\n]+" "\n")
+        (when (region-active-p)
+          (narrow-to-region (region-beginning) (region-end))
+          (goto-char (point-min))
+          (when (looking-at regexp)
+            (replace-match ""))
+          (while (re-search-forward regexp nil t nil)
+            (replace-match " "))
+          (re-search-backward regexp nil t 1)
+          (when (looking-at "\n+") (replace-match ""))
+          (goto-char (point-min))
+          (while (re-search-forward "\\(\\w\\) \\([[:punct:]] \\)" nil t nil)
+            (replace-match "\\1\\2"))))))
+
+;; CHECK: Would this be same as `util/compress-newlines'?
+(defun util/chomp-newlines ())
 
 
 (defun util/compress-newlines-subr (num-newlines &optional uniformp)
