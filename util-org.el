@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 04 February 2023 00:12:53 AM IST>
+;; Time-stamp:	<Monday 27 February 2023 08:58:34 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.8
+;; Version:     0.4.9
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -300,6 +300,8 @@ return only one level lower than the current heading."
            (when (called-interactively-p 'any)
              (message (format "Subtree has %s children" children)))))))))
 
+;; TODO: Make this more modular where they should return
+;;       the heading structure as a plist or alist
 (defun util/org-copy-subtree-elems (pred)
   "Copy all children subtrees of current heading for non-nil PRED.
 PRED is a function, which is called at each subtree heading for
@@ -309,23 +311,24 @@ satisfy PRED, they will also be copied as part of the subtree."
   (if (eq major-mode 'org-mode)
       (let ((count 0)
             kill-str)
-        (save-excursion
-          (save-restriction
-            (org-narrow-to-subtree)
-            (goto-char (point-min))
-            (let ((level (org-outline-level)))
-              (while (outline-next-heading)
-                (when (= (org-outline-level) (+ level 1))
-                  (when (funcall pred)
-                    (outline-back-to-heading t)
-                    (cl-incf count)
-                    (let ((beg (progn (beginning-of-line) (point)))
-                          (end (org-end-of-subtree t)))
-                      (push (buffer-substring-no-properties beg end) kill-str))))))
-            (kill-new (mapconcat #'identity kill-str "\n"))
-            (message (format "Killed %s subtrees" count)))))
+        (util/save-mark-and-restriction
+         (org-narrow-to-subtree)
+         (goto-char (point-min))
+         (let ((level (org-outline-level)))
+           (while (outline-next-heading)
+             (when (= (org-outline-level) (+ level 1))
+               (when (funcall pred)
+                 (outline-back-to-heading t)
+                 (cl-incf count)
+                 (let ((beg (progn (beginning-of-line) (point)))
+                       (end (org-end-of-subtree t)))
+                   (push (buffer-substring-no-properties beg end) kill-str))))))
+         (kill-new (mapconcat #'identity kill-str "\n"))
+         (message (format "Killed %s subtrees" count))))
     (message "Not in org-mode")))
 
+;; TODO: Make this more modular where they should return
+;;       the heading structure as a plist or alist
 (defun util/org-copy-subtree-elems-with-property (&optional prop)
   "Copy all children subtrees of current heading which have a property PROP.
 When called interactively and with a \\[universal-argument] PROP
@@ -337,21 +340,20 @@ is input from user.  It defaults to PDF_FILE if not given."
                    "PDF_FILE"))
          (count 0)
          kill-str)
-     (save-excursion
-       (save-restriction
-         (org-narrow-to-subtree)
-         (goto-char (point-min))
-         (let ((level (org-outline-level)))
-           (while (outline-next-heading)
-             (when (= (org-outline-level) (+ level 1))
-               (let ((val (org-entry-get (point) prop)))
-                 (when (and val (not (string-empty-p val)))
-                   (cl-incf count)
-                   (let ((beg (progn (beginning-of-line) (point)))
-                         (end (org-end-of-subtree t)))
-                     (push (buffer-substring-no-properties beg end) kill-str)))))))
-         (kill-new (mapconcat #'identity kill-str "\n"))
-         (message (format "Copied %s subtrees" count)))))))
+     (util/save-mark-and-restriction
+      (org-narrow-to-subtree)
+      (goto-char (point-min))
+      (let ((level (org-outline-level)))
+        (while (outline-next-heading)
+          (when (= (org-outline-level) (+ level 1))
+            (let ((val (org-entry-get (point) prop)))
+              (when (and val (not (string-empty-p val)))
+                (cl-incf count)
+                (let ((beg (progn (beginning-of-line) (point)))
+                      (end (org-end-of-subtree t)))
+                  (push (buffer-substring-no-properties beg end) kill-str)))))))
+      (kill-new (mapconcat #'identity kill-str "\n"))
+      (message (format "Copied %s subtrees" count))))))
 
 (defun util/org-link-get-target-for-internal (&optional full-match)
   "Check if link under point is an internal link and return target.
@@ -1318,7 +1320,7 @@ Rest of the arguments are ignored."
 CID is used to extract year.  Rest of the arguments are ignored."
   (let ((year (replace-regexp-in-string "[a-z_-]" "" cid))
         (title (util/non-stop-words-prefix heading 2))
-        (authors (mapcar (lambda (x) (string-trim (car (split-string x ",")))) (split-string authors "and"))))
+        (authors (mapcar (lambda (x) (string-trim (car (split-string x ",")))) (split-string authors " and "))))
     (format "%s %s"
             (cond ((= (length authors) 1)
                    (format "(%s, %s)" (car authors) year))

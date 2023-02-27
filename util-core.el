@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 04 February 2023 00:12:53 AM IST>
+;; Time-stamp:	<Monday 27 February 2023 08:58:34 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.5
+;; Version:     0.4.6
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -788,6 +788,15 @@ See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
         (seq-do (lambda (x) (insert (format "%s\n" x)))
                 args)
       (insert (format "%s\n" args)))))
+
+(defun util/insert-json (&rest args)
+  "Insert ARGS as strings after `json-encode-string' in current buffer."
+  (let ((print-length nil)
+        (print-level nil))
+    (if (listp args)
+        (seq-do (lambda (x) (insert (json-encode x)))
+                args)
+      (insert (json-encode x)))))
 
 (defun util/delete-blank-lines-in-buffer (&optional buf no-trailing-newline)
   "Delete all empty lines in the entire buffer BUF.

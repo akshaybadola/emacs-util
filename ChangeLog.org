@@ -222,3 +222,7 @@
      + ~util/org-insert-citation-to-heading~ and
        ~util/org-insert-citation-to-heading-from-cache~
        are obsolete now
+
+** [2023-02-27 Mon 08:57]
+   - In ~util-core~, added ~util/insert-json~
+   - In ~util-org~, fixed bug in ~util/short-heading-with-authors~
