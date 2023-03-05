@@ -226,3 +226,7 @@
 ** [2023-02-27 Mon 08:57]
    - In ~util-core~, added ~util/insert-json~
    - In ~util-org~, fixed bug in ~util/short-heading-with-authors~
+
+** [2023-03-06 Mon 03:21]
+   - Added reverse sorting if same sorting mode is again applied in
+     ~util/dired-custom-sort~

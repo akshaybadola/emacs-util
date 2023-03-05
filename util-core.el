@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Monday 27 February 2023 08:58:34 AM IST>
+;; Time-stamp:	<Monday 06 March 2023 03:22:11 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.6
+;; Version:     0.4.7
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -260,14 +260,20 @@ full path."
   "Sort the Dired buffer according to ARG.
 ARG can be \\='time \\='size or nil."
   (cond ((equal arg "time")
-         (setq dired-listing-switches "-alht --group-directories-first")
-         (setq dired-actual-switches "-alht --group-directories-first")
+         (if (string= (car (split-string dired-actual-switches)) "-alhtr")
+             (setq dired-listing-switches "-alht --group-directories-first"
+                   dired-actual-switches "-alht --group-directories-first")
+           (setq dired-listing-switches "-alhtr --group-directories-first"
+                 dired-actual-switches "-alhtr --group-directories-first"))
          (dired-sort-set-mode-line)
          (revert-buffer)
          (goto-char (point-min)))
         ((equal arg "size")
-         (setq dired-listing-switches "-alhS --group-directories-first")
-         (setq dired-actual-switches "-alhS --group-directories-first")
+         (if (string= (car (split-string dired-actual-switches)) "-alhSr")
+             (setq dired-listing-switches "-alhS --group-directories-first"
+                   dired-actual-switches "-alhS --group-directories-first")
+           (setq dired-listing-switches "-alhSr --group-directories-first"
+                 dired-actual-switches "-alhSr --group-directories-first"))
          (dired-sort-set-mode-line)
          (revert-buffer)
          (goto-char (point-min)))
@@ -279,12 +285,18 @@ ARG can be \\='time \\='size or nil."
          (goto-char (point-min)))))
 
 (defun util/dired-custom-sort-size ()
-  "Sort the `dired' buffer according to file size, descending order."
+  "Sort the `dired' buffer according to file size.
+
+The order to sort is descending order.  If the buffer is already
+sorted by file size then reverse current order."
   (interactive)
   (util/dired-custom-sort "size"))
 
 (defun util/dired-custom-sort-time ()
-  "Sort the `dired' buffer according to modification time, descending order."
+  "Sort the `dired' buffer according to modification time.
+
+The order to sort is descending order.  If the buffer is already
+sorted according to time then reverse current order."
   (interactive)
   (util/dired-custom-sort "time"))
 
