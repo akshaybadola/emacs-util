@@ -230,3 +230,6 @@
 ** [2023-03-06 Mon 03:21]
    - Added reverse sorting if same sorting mode is again applied in
      ~util/dired-custom-sort~
+
+** [2023-03-31 Fri 13:13]
+   - Don't use "TITLE" property for getting title in ~util/org-collect-headings-subr~

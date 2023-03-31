@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Monday 27 February 2023 08:58:34 AM IST>
+;; Time-stamp:	<Friday 31 March 2023 13:12:18 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.9
+;; Version:     0.4.10
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -808,8 +808,7 @@ The return value is a list of 5 tuple (heading author buf custom-id pos)."
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
         (let* ((el (org-element-at-point))
-               (heading (or (org-element-property :title el)
-                            (org-get-heading t t t t)))
+               (heading (org-get-heading t t t t))
                (author (or (org-element-property :AUTHOR el) ""))
                (custom-id (or (org-element-property :CUSTOM_ID el) ""))
                (pos (org-element-property :begin el))
@@ -1122,27 +1121,26 @@ instead of point.
 
 With optinal non-nil TOP-LEVEL, get the point at the top level
 heading if PROP is not found anywhere."
-  (save-excursion
-    (save-restriction
-      (widen)
-      (outline-back-to-heading)
-      (if (org-entry-get (point) prop)
-          (if heading
-              (substring-no-properties (org-get-heading t t t t))
-            (point))
-        (let (is-doc-root no-doc-root)
-          (while (and (not is-doc-root) (not no-doc-root))
-            (condition-case nil
-                (outline-up-heading 1 t)
-              (error (setq no-doc-root (point))))
-            (setq is-doc-root (org-entry-get (point) prop)))
-          (let ((exists (if top-level
-                            (or is-doc-root (and no-doc-root no-doc-root))
-                          is-doc-root)))
-            (and exists
-                 (if heading
-                     (substring-no-properties (org-get-heading t t t t))
-                   (point)))))))))
+  (util/save-mark-and-restriction
+   (widen)
+   (outline-back-to-heading)
+   (if (org-entry-get (point) prop)
+       (if heading
+           (substring-no-properties (org-get-heading t t t t))
+         (point))
+     (let (is-doc-root no-doc-root)
+       (while (and (not is-doc-root) (not no-doc-root))
+         (condition-case nil
+             (outline-up-heading 1 t)
+           (error (setq no-doc-root (point))))
+         (setq is-doc-root (org-entry-get (point) prop)))
+       (let ((exists (if top-level
+                         (or is-doc-root (and no-doc-root no-doc-root))
+                       is-doc-root)))
+         (and exists
+              (if heading
+                  (substring-no-properties (org-get-heading t t t t))
+                (point))))))))
 
 (defun util/org-heading-matching-re (re &optional subtree)
   "Goto first heading matching regexp RE.
