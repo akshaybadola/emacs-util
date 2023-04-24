@@ -233,3 +233,9 @@
 
 ** [2023-03-31 Fri 13:13]
    - Don't use "TITLE" property for getting title in ~util/org-collect-headings-subr~
+
+** [2023-04-24 Mon 12:19]
+   - Added ~util/insert-vars~ in ~util-core~
+   - In ~util-org~
+     + Added ~util/org-make-links-local~
+     + Modularized ~util/org-get-subtree-with-body-for-custom-id/heading~

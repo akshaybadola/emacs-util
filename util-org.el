@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 31 March 2023 13:12:18 PM IST>
+;; Time-stamp:	<Monday 24 April 2023 12:21:04 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.10
+;; Version:     0.4.11
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -409,10 +409,11 @@ itself."
                                 `(,(current-buffer) ,(point)))))
       (with-current-buffer buf
         (goto-char pt)
-        (let* ((cid (concat "#" (org-entry-get (point) "CUSTOM_ID")))
+        (let* ((cid (when (org-entry-get (point) "CUSTOM_ID")
+                      (concat "#" (org-entry-get (point) "CUSTOM_ID"))))
                (heading (concat "\\*" (substring-no-properties (org-get-heading t t t t))))
                (case-fold-search t)
-               (regexp (concat cid "\\|" heading))
+               (regexp (if cid (concat cid "\\|" heading) heading))
                (bufs (mapcar (lambda (x)
                                (find-file-noselect x))
                              util/org-collect-headings-files)))
@@ -727,35 +728,39 @@ metadata."
     (when (and has-body beg end)
       (narrow-to-region beg end))))
 
-(defun util/org-get-subtree-with-body-for-heading-matching-re (str)
+(defun util/org-get-subtree-with-body-subr (re no-error)
+  (let (match buf-str)
+    (util/save-mark-and-restriction
+     (widen)
+     (goto-char (point-min))
+     (and (re-search-forward re nil t)
+          (goto-char (match-beginning 0))
+          (setq match (match-beginning 0)))
+     (if (not match)
+         (if no-error
+             (warn "Could not find match for %s" re)
+           (user-error "Could not find match for %s" r))
+       (org-reveal)
+       (util/org-narrow-to-heading-and-body)
+       (setq buf-str (buffer-string))))
+    (prog1 buf-str
+      (when match
+        (goto-char match)
+        (when (fboundp org-fold-hide-entry)
+          (org-fold-hide-entry))))))
+
+(defun util/org-get-subtree-with-body-for-heading-matching-re (str &optional no-error)
   "Get subtree with text body if heading matches STR."
   (let ((case-fold-search t)
-        match)
-    (util/save-mark-and-restriction
-        (widen)
-      (goto-char (point-min))
-      (and (re-search-forward (concat "^\\*+.+" (regexp-quote str)) nil t)
-           (goto-char (match-beginning 0))
-           (setq match (match-beginning 0)))
-      (unless match
-        (user-error "Could not find match for %s" str))
-      (when match
-        (util/org-narrow-to-heading-and-body)
-        (buffer-string)))))
+        (re (concat "^\\*+.+" (regexp-quote str))))
+    (util/org-get-subtree-with-body-subr re no-error)))
 
-(defun util/org-get-subtree-with-body-for-custom-id (str)
+(defun util/org-get-subtree-with-body-for-custom-id (str &optional no-error)
   "Get subtree with text body if CUSTOM_ID matches STR."
   (let ((case-fold-search t)
-        match)
-    (util/save-mark-and-restriction
-        (widen)
-      (goto-char (point-min))
-      (and (re-search-forward (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str)) nil t)
-           (goto-char (match-beginning 0))
-           (setq match (match-beginning 0)))
-      (when match
-        (util/org-narrow-to-heading-and-body)
-        (buffer-string)))))
+        (re (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str)))
+        match buf-str)
+    (util/org-get-subtree-with-body-subr re no-error)))
 
 (defun util/org-kill-new-or-append-subtree ()
   "Kill or append to last kill current subtree.
@@ -920,6 +925,17 @@ Compares length of heading in a CACHE-ENTRY with
         (> (length (split-string heading))
            util/org-min-collect-heading-length))))
 
+(defun util/org-make-links-local (link-re)
+  (goto-char (point-min))
+  (while (re-search-forward link-re nil t nil)
+    (when (and (match-string 1) (match-string 2))
+      (let* ((match (substring-no-properties (match-string 1)))
+             (replacement (save-match-data
+                            (when (string-match "\\(.+?\\)::\\(.+\\)" match)
+                              (match-string 2 match)))))
+        (when replacement
+          (replace-match (concat "[[" replacement "][" (match-string 2) "]]")))))))
+
 (defun util/org-get-text-links (link-re narrow &optional file-prefix replacement make-local)
   "Get all the links matching LINK-RE in an org buffer.
 When NARROW is non-nil, first narrow to subtree.
@@ -953,9 +969,10 @@ Only one of REPLACEMENT or MAKE-LOCAL can be given."
             (when make-local
               (let* ((match (substring-no-properties (match-string 1)))
                      (replacement (save-match-data
-                                    (string-match "\\(.+?\\)::\\(.+\\)" match)
-                                    (match-string 2 match))))
-                (replace-match (concat "[[" replacement "][" (match-string 2) "]]"))))))))
+                        (when (string-match "\\(.+?\\)::\\(.+\\)" match)
+                          (match-string 2 match)))))
+                (when replacement
+                  (replace-match (concat "[[" replacement "][" (match-string 2) "]]")))))))))
     temp))
 
 (defun util/org-heading-first-subheading ()
@@ -987,8 +1004,8 @@ When in org mode, delete the link text also."
 
 (defun util/org-get-beginning-of-link ()
   "Return the beginning of a link under point if at a link."
-  (cond ((or (looking-back "\\[\\[\\(.+?\\)" 1)
-             (looking-at "\\[\\[\\(.+?\\)"))
+  (cond ((or (looking-at "\\[\\[\\(.+?\\)")
+             (looking-back "\\[\\[\\(.+?\\)" 1))
          (match-beginning 0))
         ((looking-at "\\(.+?\\)]]")
          (- (match-beginning 0) 2))
