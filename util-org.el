@@ -5,7 +5,7 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Monday 24 April 2023 12:21:04 PM IST>
+;; Time-stamp:	<Thursday 11 May 2023 13:15:19 PM IST>
 ;; Keywords:	org, utility
 ;; Version:     0.4.11
 ;; Package-Requires: ((util/core) (org))
@@ -1080,7 +1080,15 @@ Default is to raise an error."
     (cond ((string= desc (f-filename uri)))
           ((or force (string= desc uri))
            (util/org-rename-file-under-point uri uri nil t t))
-          (t (user-error "Cannot shorten link to filename if descriptio not the same a file uri.")))))
+          (t (user-error "Cannot shorten link to filename if description is not the same as file uri.")))))
+
+(defun util/org-shorten-heading (pref-arg)
+  (interactive "p")
+  (let ((desc (util/org-get-bracket-link-description)))
+    (when desc
+      (pcase-let ((`(,beg ,end) (util/org-get-bracket-link-bounds))
+                  (short-heading (util/non-stop-words-prefix desc (max pref-arg 2))))
+        (replace-string-in-region desc short-heading beg end)))))
 
 ;; TODO: Keep old name in some undo history, perhaps in a hash table
 (defun util/org-move-file-under-point (call-method &optional newname)
@@ -1288,10 +1296,17 @@ See also, `util/org-collect-headings-subr' and
                    ('subtree (format "Insert %s (subtree): " (if cache-only "from cache" "link")))
                    ('research-files (format "Insert %s (files): " (if cache-only "from cache" "link")))))
          (selected (ido-completing-read prompt selections)))
-    (cond ((string-suffix-p " (subtree)" selected)
-           (insert (apply #'format "[[%s][%s]]" (reverse (a-get subtree-text-links selected)))))
-          ((string-suffix-p " (doc tree)" selected)
-           (insert (apply #'format "[[%s][%s]]" (reverse (a-get doc-root-text-links selected)))))
+    (cond ((or (string-suffix-p " (subtree)" selected)
+               (string-suffix-p " (doc tree)" selected))
+           (pcase-let* ((relevant-links (or (and (string-suffix-p " (subtree)" selected)
+                                           subtree-text-links)
+                                      (and (string-suffix-p " (doc tree)" selected)
+                                           doc-root-text-links)))
+                        (`(,link ,desc) (reverse (a-get relevant-links selected)))
+                        (have-entry (a-get headings desc)))
+             (if have-entry
+                 (insert (format "[[%s][%s]]" link (apply transform (cons desc have-entry))))
+               (insert (format "[[%s][%s]]" link desc)))))
           ((string-suffix-p " (references)" selected)
            (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                            (length doc-root-text-links)))

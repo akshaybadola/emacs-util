@@ -239,3 +239,8 @@
    - In ~util-org~
      + Added ~util/org-make-links-local~
      + Modularized ~util/org-get-subtree-with-body-for-custom-id/heading~
+
+** [2023-05-11 Thu 13:13]
+   - Added ~util/org-shorten-heading~
+   - ~util/org-insert-link-to-heading~ now respects the ~transform~ function
+     even when subtree or doc-root links are given
