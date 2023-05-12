@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Monday 24 April 2023 12:21:04 PM IST>
+;; Time-stamp:	<Friday 12 May 2023 08:45:21 AM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.8
+;; Version:     0.4.9
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -321,7 +321,7 @@ See `time-stamp-format' for how to use the format."
                         (">" . "[]\\\\|>]")))
         (retval ts-format))
     (dolist (pattern pattern-list)
-      (setq retval (replace-regexp-in-string (car pattern) (cdr pattern) ts-format)))
+      (setq retval (replace-regexp-in-string (car pattern) (cdr pattern) retval)))
     retval))
 
 (defun util/generate-org-ts-regexp (ts-list)

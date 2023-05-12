@@ -244,3 +244,7 @@
    - Added ~util/org-shorten-heading~
    - ~util/org-insert-link-to-heading~ now respects the ~transform~ function
      even when subtree or doc-root links are given
+
+** [2023-05-12 Fri 08:44]
+   - Fixed a bug in ~util/generate-org-ts-regexp~
+   - Fixed and faster ~util/org-goto-latest-timestamp~

@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 11 May 2023 13:15:19 PM IST>
+;; Time-stamp:	<Friday 12 May 2023 08:45:21 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.11
+;; Version:     0.4.12
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -174,11 +174,6 @@ See `util/org-insert-citation-to-heading'.")
                              nil t)
      (replace-match ""))))
 
-;; DONE: occur like mode where the timestamps are sorted from latest to oldest
-;;     : I made it :-)
-;; NOTE: should be (interactive P)
-;; CHECK: Why interactive p? I've forgotten the difference
-;; FIXME: This only goes to `timestamp' and ignores clock entries
 (defun util/org-goto-latest-timestamp (&optional buf)
   "Goto latest timestamp in the current org buffer.
 If optional BUF is given then search in that instead.  By default
@@ -190,12 +185,15 @@ search only in current subtree.  With a universal argument,
      (with-current-buffer (if buf buf (current-buffer))
        (unless current-prefix-arg
          (org-narrow-to-subtree))
-       (goto-char (cdr (car (cl-sort
-                             (org-element-map (org-element-parse-buffer) 'timestamp
-                               (lambda (timestamp)
-                                 `(,(org-element-property :raw-value timestamp)
-                                   . ,(org-element-property :begin timestamp))))
-                             'org-time> :key 'car))))
+       (let ((regexp (util/generate-org-ts-regexp '("%Y-%m-%d %a %H:%M")))
+             (latest (cons 0 nil)))
+         (org-with-wide-buffer
+          (goto-char (point-min))
+          (while (re-search-forward regexp nil t)
+            (let ((seconds (org-time-string-to-seconds (match-string 0))))
+              (when (> seconds (car latest))
+                (setq latest (cons seconds (point)))))))
+         (goto-char (cdr latest)))
        (org-reveal)))))
 
 (defun util/org-occur-sorted-timestamps (&optional ts-regexp)
