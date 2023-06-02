@@ -248,3 +248,6 @@
 ** [2023-05-12 Fri 08:44]
    - Fixed a bug in ~util/generate-org-ts-regexp~
    - Fixed and faster ~util/org-goto-latest-timestamp~
+
+** [2023-06-02 Fri 08:08]
+   - Fixed two bugs in ~util-ffip~ and ~util-org~ respectively

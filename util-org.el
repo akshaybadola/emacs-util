@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 12 May 2023 08:45:21 AM IST>
+;; Time-stamp:	<Friday 02 June 2023 08:09:07 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.12
+;; Version:     0.4.13
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -744,7 +744,7 @@ metadata."
     (prog1 buf-str
       (when match
         (goto-char match)
-        (when (fboundp org-fold-hide-entry)
+        (when (fboundp 'org-fold-hide-entry)
           (org-fold-hide-entry))))))
 
 (defun util/org-get-subtree-with-body-for-heading-matching-re (str &optional no-error)
