@@ -1,13 +1,13 @@
 ;;; util-core.el --- Core utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022,2023
+;; Copyright (C) 2020,2021,2022,2023,2024
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 12 May 2023 08:45:21 AM IST>
+;; Time-stamp:	<Saturday 17 February 2024 18:12:10 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.9
+;; Version:     0.4.10
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -544,32 +544,19 @@ installed PKG or one available in package archives."
                 (let ((built-in (assq pkg package--builtins)))
                   (if built-in
                       (package--from-builtin built-in)
-                    (cadr (assq pkg package-archive-contents))))))
-         ;; (name (if desc (package-desc-name desc) pkg))
-         ;; (pkg-dir (if desc (package-desc-dir desc)))
-         ;; (reqs (if desc (package-desc-reqs desc)))
-         ;; (required-by (if desc (package--used-elsewhere-p desc nil 'all)))
-         ;; (version (if desc (package-desc-version desc)))
-         ;; (archive (if desc (package-desc-archive desc)))
-         ;; (extras (and desc (package-desc-extras desc)))
-         ;; (homepage (cdr (assoc :url extras)))
-         ;; (commit (cdr (assoc :commit extras)))
-         ;; (keywords (if desc (package-desc--keywords desc)))
-         ;; (built-in (eq pkg-dir 'builtin))
-         ;; (installable (and archive (not built-in)))
-         ;; (status (if desc (package-desc-status desc) "orphan"))
-         ;; (incompatible-reason (package--incompatible-p desc))
-         ;; (signed (if desc (package-desc-signed desc)))
-         ;; (maintainer (cdr (assoc :maintainer extras)))
-         ;; (authors (cdr (assoc :authors extras)))
-         )
-    ;; (cons (list :name name :pkg-dir pkg-dir :reqs reqs :required-by required-by
-    ;;             :version version :archive archive :extras extras :homepage
-    ;;             homepage :commit commit :keywords keywords :built-in built-in
-    ;;             :installable installable :status status :incompatible-reason
-    ;;             incompatible-reason :signed signed :maintainer maintainer
-    ;;             :authors authors))
+                    (cadr (assq pkg package-archive-contents)))))))
     desc))
+
+(defun util/package-delete (name-or-symbol &optional force nosave)
+  "Delete package with NAME-OR-SYMBOL.
+
+Like `package-delete' but get package-desc from `util/package-desc'."
+  (let ((desc (util/package-desc (if (stringp name-or-symbol)
+                                     (intern name-or-symbol)
+                                   name-or-symbol))))
+    (if desc
+        (package-delete desc force nosave)
+      (user-error "No such package"))))
 
 (defun util/package-list (pkg-regexp &optional builtins archives not-installed)
   "Return a list of packages which match PKG-REGEXP.
@@ -1007,15 +994,20 @@ Prefixed with a \\[universal-argument], sorts in reverse.  See
           (end (region-end)))
       (sort-regexp-fields current-prefix-arg "\\(\\sw\\|\\s_\\)+" "\\&" beg end))))
 
-(defun util/non-stop-words-prefix (string n)
-  "Return a prefix string of N words from STRING which are not stop words.
+(defun util/non-stop-words-prefix (string n &optional remove-stop-words-p)
+  "Return a prefix string of first few words from STRING which are not stop words.
+
+With optional REMOVE-STOP-WORDS-P, remove the stop words also. They're not removed by default.
+
 Stop words list is `util/stop-words'."
   (let (words)
     (-take-while (lambda (x)
                    (push (replace-regexp-in-string "\\(.+\\)[[:punct:]]$" "\\1" x) words)
                    (< (length (-difference (mapcar #'downcase words) util/stop-words)) n))
                  (split-string string))
-    (string-join (reverse words) " ")))
+    (if remove-stop-words-p
+        (string-join (-filter (lambda (x) (not (member x util/stop-words))) words) " ")
+      (string-join (reverse words) " "))))
 
 
 ;; url

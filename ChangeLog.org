@@ -251,3 +251,6 @@
 
 ** [2023-06-02 Fri 08:08]
    - Fixed two bugs in ~util-ffip~ and ~util-org~ respectively
+
+** [2024-02-17 Sat 18:11]
+   - Not many differences, only minor.

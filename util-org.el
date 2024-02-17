@@ -1,13 +1,13 @@
 ;;; util-org.el --- `org-mode' utilty functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021,2022,2023
+;; Copyright (C) 2018,2019,2020,2021,2022,2023,2024
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 02 June 2023 08:09:07 AM IST>
+;; Time-stamp:	<Saturday 17 February 2024 18:12:10 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.13
+;; Version:     0.4.14
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -564,7 +564,7 @@ behaviour is controlled by `util/org-execute-search-ignore-case'."
            (todo-comment-re (if (derived-mode-p 'org-mode)
                                 (format "\\(?:%s\\|%s\\)?" org-todo-regexp org-comment-string)
                               (format "\\(?:%s\\)?" org-comment-string)))
-           (custom-id-re (when (pcase (string-match-p "^#[a-zA-Z0-9_-]+$" str)
+           (custom-id-re (when (pcase (string-match-p "^#[a-zA-Z0-9_-:]+$" str)
                                  (0 t)
                                  (_ nil))
                            (concat " *?:CUSTOM_ID: *?" (string-remove-prefix "#" str))))
@@ -1541,7 +1541,9 @@ Defaults to `equal'."
 (defun util/org-convert-link-to-description ()
   "Convert link under point to its description.
 
-Link is assumed to be a square bracket link."
+Link is assumed to be a square bracket link.
+
+With a \\[universal-argument] turn the text to boldface also."
   (interactive)
   (pcase-let* ((`(,beg . ,end) (util/org-get-bracket-link-bounds))
                (desc (and beg end
@@ -1550,7 +1552,9 @@ Link is assumed to be a square bracket link."
     (when desc
       (delete-region beg end)
       (goto-char beg)
-      (insert desc))))
+      (if current-prefix-arg
+          (insert (concat "*" desc "*"))
+        (insert desc)))))
 
 (defun util/org-copy-link-under-point (&optional shorten)
   "Copy if there's an org link under point.
