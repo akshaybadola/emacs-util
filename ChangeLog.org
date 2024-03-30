@@ -254,3 +254,6 @@
 
 ** [2024-02-17 Sat 18:11]
    - Not many differences, only minor.
+
+** [2024-03-30 Sat 17:37]
+   - A bug fix to ~util/org-insert-heading-from-url~

@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 17 February 2024 18:12:10 PM IST>
+;; Time-stamp:	<Saturday 30 March 2024 17:37:47 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.14
+;; Version:     0.4.15
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -1666,6 +1666,7 @@ Requires python, and python packages \"bs4\", \"requests\" and
                     (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
                             util/insert-heading-python-executable url headers)))))))
 
+(defvar util/org-insert-heading-from-url-placeholder nil)
 (defun util/org-insert-heading-from-url (&optional url with-header)
   "Fetch the title from an optional URL.
 URL is copied from clipboard if not given.
@@ -1678,16 +1679,30 @@ Requires python, and python packages \"bs4\", \"requests\" and
           (url (or url (if (string-match-p
                             "^http" (aref (url-generic-parse-url maybe-killed-url) 1))
                            maybe-killed-url
-                        (user-error "Last kill is not a URL"))))
-         (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
+                         (user-error "Last kill is not a URL"))))
+          (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" ""))
+          (cmd (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
+                       util/insert-heading-python-executable url headers))
+          (buf (current-buffer))
+          pt)
+     (setq util/org-insert-heading-from-url-placeholder cmd)
      (org-insert-heading-respect-content)
      (newline)
      (org-indent-line)
      (insert (format "- %s" url))
-     (org-edit-headline
-      (string-trim (shell-command-to-string
-                    (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
-                            util/insert-heading-python-executable url headers)))))))
+     (setq pt (point))
+     (if current-prefix-arg
+         (async-start
+          `(lambda ()
+             ,(async-inject-variables "util/org-insert-heading-from-url-placeholder")
+             (shell-command-to-string util/org-insert-heading-from-url-placeholder))
+          (lambda (result)
+            (with-current-buffer buf
+              (save-excursion
+                (goto-char pt)
+                (org-edit-headline result)))))
+       (org-edit-headline
+        (string-trim (shell-command-to-string cmd)))))))
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.
