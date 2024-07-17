@@ -257,3 +257,6 @@
 
 ** [2024-03-30 Sat 17:37]
    - A bug fix to ~util/org-insert-heading-from-url~
+
+** [2024-07-17 Wed 13:05]
+   - Couple of extra regexps

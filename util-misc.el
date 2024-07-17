@@ -1,13 +1,13 @@
 ;;; util-misc.el --- Various utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022,2023
+;; Copyright (C) 2020,2021,2022,2023,2024
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
+;; Time-stamp:	<Wednesday 17 July 2024 13:05:21 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.1
+;; Version:     0.4.2
 ;; Package-Requires: ((util/core))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -101,7 +101,9 @@
 
 
 (defun util/path-join (&rest elements)
-  "Safely concatenate path ELEMENTS in a consistent manner."
+  "Safely concatenate path ELEMENTS in a consistent manner.
+
+This DOES NOT do any filename expansion."
   (declare (pure t) (side-effect-free t))
   (concat (if (string-prefix-p "~" (car elements)) "" "/" )
           (mapconcat (lambda (x)

@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 30 March 2024 17:37:47 PM IST>
+;; Time-stamp:	<Wednesday 17 July 2024 13:05:21 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.15
+;; Version:     0.4.16
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -60,6 +60,20 @@
   "Regexp for matching an org fuzzy or custom-id text link.
 First group match gives the file+link and the second the
 description.")
+
+(defvar util/org-custom-id-link-re
+  (rx "[" "[" (group (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
+                          "#" (+? (not blank))))
+      "]" "[" (group (+? any)) "]" "]")
+  "Regexp for matching a custom-id text link.
+First group match gives the file+link and the second the
+description.")
+
+(defvar util/org-file-and-cid-re
+  (rx (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
+           "#" (+? (not blank))))
+  "Regexp for matching a file path with custom-id.
+This matches only file path with custom id and not full link.")
 
 (defvar util/org-text-http-link-re
   (rx "[" "[" (group (or (seq (opt (opt "file:") (opt "//") (or "/" "~") (regexp ".+?::"))
@@ -1254,8 +1268,11 @@ See also, `util/org-collect-headings-subr' and
                                   (let ((temp (util/org-get-text-links text-link-re t)))
                                     (when temp
                                       (mapcar (lambda (x)
-                                                (cons (concat (replace-regexp-in-string text-link-re "\\2" (car x))
-                                                              " (doc tree)")
+                                                (cons (concat
+                                                       (replace-regexp-in-string text-link-re "\\2" (car x))
+                                                       (if (string-match-p util/org-file-and-cid-re (cadr x))
+                                                           "" " (*)")
+                                                       " (doc tree)")
                                                       x))
                                               (-uniq temp)))))))
          ;; Get links from subtree in references section of doc root if it
