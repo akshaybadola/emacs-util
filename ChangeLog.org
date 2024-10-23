@@ -260,3 +260,8 @@
 
 ** [2024-07-17 Wed 13:05]
    - Couple of extra regexps
+
+** [2024-10-23 Wed 17:26]
+   - Added ~util/ffip-grep-git-files-current-directory~ in ~util-ffip~
+   - Fixed a bug where file in ~PROPERTY~ block would not delete in
+     ~util/org-delete-file-under-point~ in ~util-org~.

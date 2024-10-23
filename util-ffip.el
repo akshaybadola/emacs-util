@@ -1,13 +1,13 @@
 ;;; util-ffip.el --- Find file in project extentions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022,2023
+;; Copyright (C) 2020,2021,2022,2023,2024
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Friday 02 June 2023 08:09:07 AM IST>
+;; Time-stamp:	<Wednesday 23 October 2024 17:27:35 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.1
+;; Version:     0.4.2
 ;; Package-Requires: ((a "0.1.1") (dash "2.17.0")
 ;;                    (find-file-in-project "6.0.6"))
 
@@ -152,6 +152,7 @@ The files are matched with FILE-PATTERN."
   (util/ffip-grep-pattern (concat "*." (car (last (split-string (buffer-file-name) "\\."))))))
 
 (defalias 'util/ffip-gg 'util/ffip-grep-git-files)
+(defalias 'util/ffip-ggd 'util/ffip-grep-git-files-current-directory)
 
 (defcustom util/ffip-grep-num-files-threshold
   50
@@ -159,17 +160,11 @@ The files are matched with FILE-PATTERN."
   :type 'number
   :group 'util)
 
-(defun util/ffip-grep-git-files (&optional arg pattern filter-re)
-  "Grep for PATTERN in git staged files.
 
-With one \\[universal-argument], filter files based on FILTER-RE
-first.
-
-With two \\[universal-argument], filter files of current
-extension."
-  (interactive "p")
-  (let* ((root (ffip-project-root))
-         (phrase (thing-at-point 'symbol t))
+(defun util/ffip-grep-git-subr (arg root pattern filter-re)
+  "Subroutine for `util/ffip-grep-git-files' and
+`util/ffip-grep-git-files-current-directory'."
+  (let* ((phrase (thing-at-point 'symbol t))
          (cmd-output (shell-command-to-string (format "cd %s && git ls-files" root)))
          (filter-re (or filter-re
                         (pcase arg
@@ -200,6 +195,35 @@ extension."
               (user-error "Aborted"))
           (grep cmd))
       (message "No files found matching pattern %s" pattern))))
+
+
+(defun util/ffip-grep-git-files-current-directory (&optional arg pattern filter-re)
+  "Similar to `util/ffip-grep-git-files' but only search in current directory.
+
+Useful for a monorepo like project or just if you want to search in
+subdirectory of a large git project.
+
+With one \\[universal-argument], filter files based on FILTER-RE first.
+
+With two \\[universal-argument], filter files of current extension."
+    (interactive "p")
+    (util/ffip-grep-git-subr arg (file-name-directory (buffer-file-name)) pattern filter-re))
+
+
+(defun util/ffip-grep-git-files (&optional arg pattern filter-re)
+  "Grep for PATTERN in git staged files.
+
+This function searches in all files from the project root. See
+`util/ffip-grep-git-files-current-directory' for a similar function for
+searching only in current directory.
+
+With one \\[universal-argument], filter files based on FILTER-RE
+first.
+
+With two \\[universal-argument], filter files of current
+extension."
+  (interactive "p")
+  (util/ffip-grep-git-subr arg (ffip-project-root) pattern filter-re))
 
 
 (provide 'util/ffip)

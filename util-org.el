@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 17 July 2024 13:05:21 PM IST>
+;; Time-stamp:	<Wednesday 23 October 2024 17:27:35 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.16
+;; Version:     0.4.17
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -1010,9 +1010,11 @@ When in org mode, delete the link text also."
         (message "Nothing to do here")
       (f-delete uri)
       (message "Deleted file %s" uri)
-      (if (and beg end)
-          (delete-region beg end)
-        (message "Could not delete the link text")))))
+      (cond ((and beg end)
+             (delete-region beg end))
+            ((org-element-type-p context 'node-property)
+             (org-delete-property "PDF_FILE"))
+            (t (message "Could not delete the link text"))))))
 
 (defun util/org-get-beginning-of-link ()
   "Return the beginning of a link under point if at a link."
