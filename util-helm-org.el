@@ -1,13 +1,13 @@
 ;;; util-helm-org.el --- `helm' Utilty functions for `org' buffers. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021,2022,2023
+;; Copyright (C) 2018,2019,2020,2021,2022,2023,2025
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Thursday 19 January 2023 08:25:49 AM IST>
+;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
 ;; Keywords:	helm, org, utility
-;; Version:     0.4.1
+;; Version:     0.4.2
 ;; Package-Requires: ((util/core) (util/org) (helm))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -346,7 +346,10 @@ Optional PRED is used to filter the headings."
 
 (defun util/helm-org-sources-agenda-files (&optional pred)
   "Subroutine to gather helm sources from agenda files."
-  (let* ((bufs (mapcar #'find-buffer-visiting (org-agenda-files)))
+  (let* ((bufs (mapcar (lambda (x)
+                         (or (find-buffer-visiting x)
+                             (find-file-noselect x)))
+                       (org-agenda-files)))
          (sources (mapcar (-rpartial #'util/helm-org-get-source-for-buf pred) bufs)))
     sources))
 

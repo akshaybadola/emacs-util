@@ -265,3 +265,7 @@
    - Added ~util/ffip-grep-git-files-current-directory~ in ~util-ffip~
    - Fixed a bug where file in ~PROPERTY~ block would not delete in
      ~util/org-delete-file-under-point~ in ~util-org~.
+
+** [2025-05-07 Wed 14:38]
+   - Some minor refactor and new function ~util/org-add-title-to-existing-url-list-item~
+     in ~util/org~.

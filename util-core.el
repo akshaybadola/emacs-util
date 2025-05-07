@@ -1,13 +1,13 @@
 ;;; util-core.el --- Core utility functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022,2023,2024
+;; Copyright (C) 2020,2021,2022,2023,2024,2025
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Saturday 17 February 2024 18:12:10 PM IST>
+;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.10
+;; Version:     0.4.11
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -502,7 +502,7 @@ update the version also."
          (version-files (mapcar (lambda (x) (car (split-string x ":")))
                                 (split-string
                                  (shell-command-to-string
-                                  (format "egrep \"%s\" %s" version-re
+                                  (format "grep -E \"%s\" %s" version-re
                                           (string-join all-files " ")))
                                  "\n" t))))
     (when (and (= 1 (length all-files)) version-files)

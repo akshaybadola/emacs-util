@@ -1,13 +1,13 @@
 ;;; util-org.el --- `org-mode' utilty functions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018,2019,2020,2021,2022,2023,2024
+;; Copyright (C) 2018,2019,2020,2021,2022,2023,2024,2025
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 October 2024 17:27:35 PM IST>
+;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.17
+;; Version:     0.4.18
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -403,7 +403,7 @@ Derived from `org-link-open'."
                            (user-error "Not at an org link %s" path-2))))))))))))
 
 (defun util/org-find-references (nlines)
-  "`occur' for references under point in `util/org-collect-headings-files'.
+  "`occur' for references of heading under point in `util/org-collect-headings-files'.
 
 NLINES is the number of lines of context for occur.
 
@@ -870,7 +870,7 @@ The return value is a list of 5 tuple (heading author buf custom-id pos)."
 ;;       However, there's no `org-delete-heading-hook'
 ;; TODO: Lookup in cache if buffer is modified
 (defun util/org-collected-headings (predicate &optional bufname no-refresh)
-  "Return a collection of org headings `util/org-collect-buffers'.
+  "Return a collection of org headings from `util/org-collect-buffers'.
 
 The headings are cached in `util/org-collect-headings-cache' for
 faster retrieval and the cache is updated if the buffer is
@@ -1236,9 +1236,10 @@ See also, `util/org-collect-headings-subr' and
   (let* ((predicate (or predicate 'util/org-default-heading-filter-p))
          (read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
-                        'research-files))
+                        'research-files)) ; maybe change research-files to `collect-files'
          (transform (or transform (lambda (h &rest args) h)))
          (text-link-re util/org-text-link-re)
+         ;; org links in buffer/subtree/files
          (headings (pcase read-from
                      ('buffer (cdar (util/org-collected-headings
                                      predicate
@@ -1255,6 +1256,7 @@ See also, `util/org-collect-headings-subr' and
          (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
                                       (save-excursion (outline-back-to-heading t) (point)))))
          ;; org links in current subtree text
+         ;; TODO: Check `read-from'
          (subtree-text-links (when citation
                                (let ((temp (util/org-get-text-links text-link-re t)))
                                  (when temp
@@ -1264,6 +1266,7 @@ See also, `util/org-collect-headings-subr' and
                                                    x))
                                            (-uniq temp))))))
          ;; org links in text from the document root
+         ;; TODO: Check `read-from'
          (doc-root-text-links (when (and citation doc-root)
                                 (save-excursion
                                   (goto-char doc-root)
@@ -1279,6 +1282,7 @@ See also, `util/org-collect-headings-subr' and
                                               (-uniq temp)))))))
          ;; Get links from subtree in references section of doc root if it
          ;; exists
+         ;; TODO: Check `read-from'
          (references (when (or util/org-insert-link-always-add-refs refs)
                        (save-excursion
                          (if doc-root
@@ -1400,6 +1404,7 @@ cache on buffer modification."
 
 ;; FIXME: Need to update cache first if asked or update by default and don't
 ;;        update when asked
+;; TODO: Maybe this should be renamed to `util/org-filter-collected-headings'
 (defun util/org-filter-from-headings-cache (cache-name predicate &optional file-or-buffer)
   "Filter headings from `util/org-collect-headings-cache' with  CACHE-NAME.
 
@@ -1663,7 +1668,9 @@ The links are saved in the `kill-ring'."
     links))
 
 (defun util/org-insert-list-item-from-url (&optional url with-header)
-  "Fetch the title from an optional URL.
+  "Insert a list item from URL with text extracted from URL title.
+
+Fetch the title from an optional URL.
 URL is copied from clipboard if not given.
 
 Requires python, and python packages \"bs4\", \"requests\" and
@@ -1674,8 +1681,8 @@ Requires python, and python packages \"bs4\", \"requests\" and
           (url (or url (if (string-match-p
                             "^http" (aref (url-generic-parse-url maybe-killed-url) 1))
                            maybe-killed-url
-                        (user-error "Last kill is not a URL"))))
-         (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
+                         (user-error "Last kill is not a URL"))))
+          (headers (if with-header "headers={\"accept\": \"text/html,application/xhtml+xml,application/xml;\", \"accept-encoding\": \"gzip, deflate\", \"accept-language\": \"en-GB,en-US;q=0.9,en;q=0.8\", \"cache-control\": \"no-cache\", \"user-agent\": \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)\"}" "")))
      (org-insert-item)
      (insert (format "%s" url))
      (newline)
@@ -1687,7 +1694,9 @@ Requires python, and python packages \"bs4\", \"requests\" and
 
 (defvar util/org-insert-heading-from-url-placeholder nil)
 (defun util/org-insert-heading-from-url (&optional url with-header)
-  "Fetch the title from an optional URL.
+  "Insert an org heading from URL with text extracted from URL title.
+
+Fetch the title from an optional URL.
 URL is copied from clipboard if not given.
 
 Requires python, and python packages \"bs4\", \"requests\" and
@@ -1722,6 +1731,21 @@ Requires python, and python packages \"bs4\", \"requests\" and
                 (org-edit-headline result)))))
        (org-edit-headline
         (string-trim (shell-command-to-string cmd)))))))
+
+(defun util/org-add-title-to-existing-url-list-item ()
+  "Add a title to an existing url list item.
+
+Similar to `util/org-insert-list-item-from-url' but for existing urls."
+  (interactive)
+  (let ((link (plist-get (get-text-property (point) 'htmlize-link) :uri)))
+    (end-of-line)
+    (newline)
+    (org-indent-line)
+    (insert
+     (string-trim (shell-command-to-string
+                   (format "%s -W ignore -c 'import requests; from bs4 import BeautifulSoup; print(BeautifulSoup(requests.get(\"%s\" %s).content, features=\"lxml\").title.text)'"
+                           util/insert-heading-python-executable link ""))))))
+
 
 (defun util/org-collect-duplicate-customids (&optional predicate test)
   "Check the buffer for duplicate customids.

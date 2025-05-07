@@ -1,13 +1,13 @@
 ;;; util-ffip.el --- Find file in project extentions. ;;; -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020,2021,2022,2023,2024
+;; Copyright (C) 2020,2021,2022,2023,2024,2025
 ;; Akshay Badola
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 23 October 2024 17:27:35 PM IST>
+;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.2
+;; Version:     0.4.3
 ;; Package-Requires: ((a "0.1.1") (dash "2.17.0")
 ;;                    (find-file-in-project "6.0.6"))
 
@@ -207,7 +207,10 @@ With one \\[universal-argument], filter files based on FILTER-RE first.
 
 With two \\[universal-argument], filter files of current extension."
     (interactive "p")
-    (util/ffip-grep-git-subr arg (file-name-directory (buffer-file-name)) pattern filter-re))
+    (util/ffip-grep-git-subr arg (if (buffer-file-name)
+                                     (file-name-directory (buffer-file-name))
+                                   default-directory)
+                             pattern filter-re))
 
 
 (defun util/ffip-grep-git-files (&optional arg pattern filter-re)
