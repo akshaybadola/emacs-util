@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
+;; Time-stamp:	<Sunday 11 May 2025 08:44:39 AM IST>
 ;; Keywords:	helm, org, utility
-;; Version:     0.4.2
+;; Version:     0.4.3
 ;; Package-Requires: ((util/core) (util/org) (helm))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -283,9 +283,9 @@ Optional PRED is used to filter the headings.  Defaults to
         ;; FIXME: Perhaps use `util/org-filter-from-headings-cache' instead
         (let ((cache (a-get util/org-collect-headings-cache (buffer-name))))
           (setq headings (-filter #'identity
-                                  (mapcar (lambda (x) (when (funcall pred (car x))
+                                  (mapcar (lambda (x) (when (funcall pred (a-get x 'HEADING))
                                                         ;; (heading . ((buffer-name) (point)))
-                                                        `(,(car x) . ,(list (nth 2 x) (-last-item x)))))
+                                                        `(,(a-get x 'HEADING) . (,(a-get x 'BUF) ,(a-get x 'POS)))))
                                           cache))))
       ;; FIXME: More redundant heading collection code
       (save-excursion

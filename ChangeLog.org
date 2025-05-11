@@ -269,3 +269,6 @@
 ** [2025-05-07 Wed 14:38]
    - Some minor refactor and new function ~util/org-add-title-to-existing-url-list-item~
      in ~util/org~.
+
+** [2025-05-11 Sun 08:43]
+   - Major change in ~util/org-collect-headings-cache~ with it now being an alist

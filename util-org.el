@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
+;; Time-stamp:	<Sunday 11 May 2025 08:44:39 AM IST>
 ;; Keywords:	org, utility
-;; Version:     0.4.18
+;; Version:     0.4.19
 ;; Package-Requires: ((util/core) (org))
 ;; This file is *NOT* part of GNU Emacs.
 
@@ -115,17 +115,22 @@ number corresponds to the prefix argument converted to integer.")
   "Additional property filter to apply to headings while collecting them.
 Used by `util/org-collect-headings-subr'")
 
-;; TODO: This should be a hash table
-;;       - Optionally collect headings at startup
-;;       - Decouple cache from functions so same function
-;;         can be used with multiple caches
 (defvar util/org-collect-headings-cache nil
   "Alist of collected headings cache.
-The cache is of the form `(,heading ,author ,buf ,custom-id ,pos).")
+
+The cache is of the form (buf . entries) and each entry is an alist
+of certain properties of the heading.
+See `util/org-collect-headings-subr' for which properties are stored.
+
+A previous version of the the cache had entries of the form
+`(,heading ,author ,buf ,custom-id ,pos).")
+
 (defvar util/org-collect-headings-files nil
   "List of files from which to collect headings.")
+
 (defvar util/org-collect-files-modtimes nil
   "Modification times of buffers from which to collect headings.")
+
 (defvar util/org-collect-buffers nil
   "List of buffers from which to collect headings.")
 
@@ -819,18 +824,35 @@ used as of now."
 (defun util/org-collect-headings-subr ()
   "Return headings in an org buffer.
 
-The return value is a list of 5 tuple (heading author buf custom-id pos)."
+The return value is an alist with keys:
+
+(HEADING POS BUF DOI DBLP ARXIVID PUBLICATIONVENUE
+INFLUENTIALCITATIONCOUNT CITATIONCOUNT SS_URL YEAR VENUE AUTHOR TITLE
+PAPERID ARXIV_URL CUSTOM_ID SOURCE)."
   (let (headings)
     (save-excursion
       (goto-char (point-max))
       (while (re-search-backward org-complex-heading-regexp nil t)
-        (let* ((el (org-element-at-point))
-               (heading (org-get-heading t t t t))
-               (author (or (org-element-property :AUTHOR el) ""))
-               (custom-id (or (org-element-property :CUSTOM_ID el) ""))
-               (pos (org-element-property :begin el))
-               (buf (buffer-name)))
-          (push `(,heading ,author ,buf ,custom-id ,pos) headings)))
+        (let ((el (org-element-at-point)))
+          (push `((HEADING . ,(org-get-heading t t t t))
+                  (POS . ,(org-element-property :begin el))
+                  (BUF . ,(buffer-name))
+                  (DOI . ,(or (org-element-property :DOI el) ""))
+                  (DBLP . ,(or (org-element-property :DBLP el) ""))
+                  (ARXIVID . ,(or (org-element-property :ARXIVID el) ""))
+                  (PUBLICATIONVENUE . ,(or (org-element-property :PUBLICATIONVENUE el) ""))
+                  (INFLUENTIALCITATIONCOUNT . ,(or (org-element-property :INFLUENTIALCITATIONCOUNT el) ""))
+                  (CITATIONCOUNT . ,(or (org-element-property :CITATIONCOUNT el) ""))
+                  (SS_URL . ,(or (org-element-property :SS_URL el) ""))
+                  (YEAR . ,(or (org-element-property :YEAR el) ""))
+                  (VENUE . ,(or (org-element-property :VENUE el) ""))
+                  (AUTHOR . ,(or (org-element-property :AUTHOR el) ""))
+                  (TITLE . ,(or (org-element-property :TITLE el) ""))
+                  (PAPERID . ,(or (org-element-property :PAPERID el) ""))
+                  (ARXIV_URL . ,(or (org-element-property :ARXIV_URL el) ""))
+                  (CUSTOM_ID . ,(or (org-element-property :CUSTOM_ID el) ""))
+                  (SOURCE . ,(or (org-element-property :SOURCE el) "")))
+                headings)))
       headings)))
 
 (defun util/org-get-headings-from-cache (bufname)
@@ -932,8 +954,8 @@ The return value is an alist of buffer name and headings."
   "Default predicate for `util/org-collect-headings-subr'.
 Compares length of heading in a CACHE-ENTRY with
 `util/org-min-collect-heading-length'."
-  (let ((heading (car cache-entry)))
-    (or (> (length (nth 3 cache-entry)) 0)
+  (let ((heading (a-get cache-entry 'HEADING)))
+    (or (> (length (a-get cache-entry 'CUSTOM_ID)) 0)
         (> (length (split-string heading))
            util/org-min-collect-heading-length))))
 
@@ -1237,7 +1259,7 @@ See also, `util/org-collect-headings-subr' and
          (read-from (or (a-get util/org-insert-link-to-heading-prefix-behaviour
                                current-prefix-arg)
                         'research-files)) ; maybe change research-files to `collect-files'
-         (transform (or transform (lambda (h &rest args) h)))
+         (transform (or transform (lambda (h) (a-get h 'HEADING))))
          (text-link-re util/org-text-link-re)
          ;; org links in buffer/subtree/files
          (headings (pcase read-from
@@ -1254,7 +1276,7 @@ See also, `util/org-collect-headings-subr' and
                                  (-filter predicate
                                           (util/org-collect-headings-subr))))))
          (doc-root (when citation (or (util/org-get-tree-prop "DOC_ROOT")
-                                      (save-excursion (outline-back-to-heading t) (point)))))
+                                     (save-excursion (outline-back-to-heading t) (point)))))
          ;; org links in current subtree text
          ;; TODO: Check `read-from'
          (subtree-text-links (when citation
@@ -1304,12 +1326,19 @@ See also, `util/org-collect-headings-subr' and
          (selections (-concat (a-keys subtree-text-links)
                               (a-keys doc-root-text-links)
                               (mapcar (lambda (x)
-                                        (concat (string-join (-take 2 x) " ") " (references)"))
+                                        (concat (string-join `(,(a-get x 'HEADING)
+                                                               ,(a-get x 'AUTHOR))
+                                                             " ")
+                                                " (references)"))
                                       references)
                               (mapcar (lambda (x)
                                         (string-join (pcase read-from
-                                                       ((or 'buffer 'subtree) (-take 2 x))
-                                                       ('research-files (-take 3 x)))
+                                                       ((or 'buffer 'subtree)
+                                                        `(,(a-get x 'HEADING)
+                                                          ,(a-get x 'AUTHOR)))
+                                                       ('research-files `(,(a-get x 'HEADING)
+                                                                          ,(a-get x 'AUTHOR)
+                                                                          ,(a-get x 'BUF))))
                                                      " "))
                                       headings)))
          (prompt (pcase read-from
@@ -1326,38 +1355,38 @@ See also, `util/org-collect-headings-subr' and
                         (`(,link ,desc) (reverse (a-get relevant-links selected)))
                         (have-entry (a-get headings desc)))
              (if have-entry
-                 (insert (format "[[%s][%s]]" link (apply transform (cons desc have-entry))))
+                 (insert (format "[[%s][%s]]" link (funcall transform (cons desc have-entry))))
                (insert (format "[[%s][%s]]" link desc)))))
           ((string-suffix-p " (references)" selected)
            (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                            (length doc-root-text-links)))
                   (file (format "file:%s::" (buffer-file-name (current-buffer))))
                   (entry (nth indx references))
-                  (custom-id (nth 3 (nth indx references))))
+                  (custom-id (a-get entry 'CUSTOM_ID)))
              (if (not (string-empty-p custom-id))
-                 (insert (format "[[%s#%s][%s]]" file custom-id (apply transform entry)))
-               (insert (format "[[%s*%s][%s]]" file entry (apply transform entry))))))
+                 (insert (format "[[%s#%s][%s]]" file custom-id (funcall transform entry)))
+               (insert (format "[[%s*%s][%s]]" file entry (funcall transform entry))))))
           (t (let* ((indx (- (-elem-index selected selections) (length subtree-text-links)
                              (length doc-root-text-links) (length references)))
                     (file (format
                            "file:%s::"
                            (pcase read-from
                              ('research-files (buffer-file-name
-                                               (get-buffer (nth 2 (nth indx headings)))))
+                                               (get-buffer (a-get (nth indx headings) 'BUF))))
                              (_ (buffer-file-name (current-buffer))))))
                     (entry (pcase read-from
                                ('research-files (nth indx headings))
                                (_ (nth indx headings))))
                     (heading (car entry))
-                    (custom-id (nth 3 entry)))
+                    (custom-id (a-get entry 'CUSTOM_ID)))
                (if (not (string-empty-p custom-id))
-                   (insert (format "[[%s#%s][%s]]" file custom-id (apply transform entry)))
-                 (insert (format "[[%s*%s][%s]]" file heading (apply transform entry)))))))))
+                   (insert (format "[[%s#%s][%s]]" file custom-id (funcall transform entry)))
+                 (insert (format "[[%s*%s][%s]]" file heading (funcall transform entry)))))))))
 
-(defun util/short-heading (heading &rest args)
+(defun util/short-heading (entry)
   "Return first two non stop words of HEADING.
 Rest of the arguments are ignored."
-  (util/non-stop-words-prefix heading 2))
+  (util/non-stop-words-prefix (a-get entry 'HEADING) 2))
 
 ;; Tests
 ;; (util/short-heading-with-authors "Language Models are Unsupervised Multitask Learners" "Radford, Alec and Wu, Jeff and Child, R. and Luan, David and Amodei, Dario and Sutskever, Ilya" "reading.org" "radford2019language" 422491)
@@ -1366,12 +1395,13 @@ Rest of the arguments are ignored."
 ;; (Radford and Wu, 2019)
 ;; (util/short-heading-with-authors "Language Models are Unsupervised Multitask Learners" "Radford, Alec" "reading.org" "radford2019language" 422491)
 ;; (Radford, 2019)
-(defun util/short-heading-with-authors (heading authors _file cid &rest args)
+(defun util/short-heading-with-authors (entry)
   "Return a first two non stop words of HEADING with AUTHORS in brackets.
 CID is used to extract year.  Rest of the arguments are ignored."
-  (let ((year (replace-regexp-in-string "[a-z_-]" "" cid))
-        (title (util/non-stop-words-prefix heading 2))
-        (authors (mapcar (lambda (x) (string-trim (car (split-string x ",")))) (split-string authors " and "))))
+  (let ((year (or (a-get entry 'YEAR) (replace-regexp-in-string "[a-z_-]" "" cid)))
+        (title (util/non-stop-words-prefix (a-get entry 'TITLE) 2))
+        (authors (mapcar (lambda (x) (string-trim (car (split-string x ","))))
+                         (split-string (a-get entry 'AUTHOR) " and "))))
     (format "%s %s"
             (cond ((= (length authors) 1)
                    (format "(%s, %s)" (car authors) year))
