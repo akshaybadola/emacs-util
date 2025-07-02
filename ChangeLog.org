@@ -272,3 +272,11 @@
 
 ** [2025-05-11 Sun 08:43]
    - Major change in ~util/org-collect-headings-cache~ with it now being an alist
+
+** [2025-07-02 Wed 17:34]
+   - Added some ~url-post~ functions
+     ~util/url-join~, ~util/url-post-json-synchronously~,
+     ~util/post-json-callback~, ~util/url-post-json-async~
+   - Editing function ~util/bounds-of-word-at-point~
+   - Minor refator
+

@@ -5,9 +5,9 @@
 
 ;; Author:	Akshay Badola <akshay.badola.cs@gmail.com>
 ;; Maintainer:	Akshay Badola <akshay.badola.cs@gmail.com>
-;; Time-stamp:	<Wednesday 07 May 2025 14:38:06 PM IST>
+;; Time-stamp:	<Wednesday 02 July 2025 17:33:38 PM IST>
 ;; Keywords:	utility, convenience, emacs-lisp, org, helm
-;; Version:     0.4.11
+;; Version:     0.4.12
 ;; Package-Requires: ((a) (dash) (f) (string-inflection))
 
 ;; This file is *NOT* part of GNU Emacs.
@@ -35,6 +35,7 @@
 
 
 (require 'a)
+(require 'url)
 (require 'cl-lib)
 (require 'dash)
 (require 'dired)
@@ -58,7 +59,11 @@
 (defvar ido-enable-flex-matching)
 
 (defvar util/no-capitalize-small
-  '("a" "an" "and" "are" "as" "at" "by" "can" "did" "do" "does" "for" "from" "had" "has" "have" "having" "here" "how" "in" "into" "is" "it" "it's" "its" "not" "of" "on" "over" "should" "so" "than" "that" "the" "then" "there" "these" "to" "was" "were" "what" "when" "where" "which" "who" "why" "will" "with")
+  '("a" "an" "and" "are" "as" "at" "by" "can" "did" "do" "does"
+    "for" "from" "had" "has" "have" "having" "here" "how" "in" "into"
+    "is" "it" "it's" "its" "not" "of" "on" "over" "should" "so" "than"
+    "that" "the" "then" "there" "these" "to" "was" "were" "what" "when"
+    "where" "which" "who" "why" "will" "with")
   "List of words not to capitalize for `util/title-case'.")
 
 (defvar util/no-capitalize-big
@@ -87,8 +92,7 @@
 (defvar util/stop-words util/no-capitalize-big
   "Default value of list of stop words.")
 
-
-;; Some macros
+;; Some `macros'
 
 (defmacro util/save-mark-and-restriction (&rest body)
   "Save both mark and restriction while evaluating BODY."
@@ -133,7 +137,6 @@ Message with MSG-PREFIX if not in MODE."
     (user-error "%sNot in %s" msg-prefix mode)))
 (make-obsolete 'util/check-mode 'util/with-check-mode "util/core 0.3.12")
 
-
 (defun util/pairs-to-alist (pairs)
   "Merge cons PAIRS into an alist with first elements as keys.
 
@@ -153,7 +156,6 @@ Example:
               pairs)
       newlist)))
 
-
 (defun util/ibuffer-copy-full-filenames-as-kill ()
   "Copy full buffer filename at point to kill ring without marking it.
 Only copies buffer at point even if region is set.  Defaults to
@@ -162,7 +164,6 @@ copying marked buffers if there are any marked buffers."
   (if (zerop (ibuffer-count-marked-lines))
       (kill-new (buffer-file-name (ibuffer-current-buffer t)))
     (ibuffer-copy-filename-as-kill 0)))
-
 
 ;; From https://www.emacswiki.org/emacs/ImenuMode#toc14
 ;; Need recursive function here to fix it
@@ -219,7 +220,6 @@ function calls itself a second time."
                     (string= (car imenu--rescan-item) name))
           (add-to-list 'util//symbol-names name)
           (add-to-list 'util//name-and-pos (cons name position))))))))
-
 
 ;; `dired' functions
 
@@ -305,8 +305,7 @@ sorted according to time then reverse current order."
   (interactive)
   (util/dired-custom-sort nil))
 
-
-;; Time stamp functions
+;; `time-stamp' functions
 
 (defun util/org-time-stamp-regexp (ts-format)
   "Return regexp for an org `time-stamp' format TS-FORMAT.
@@ -451,7 +450,6 @@ visiting that FILE."
          (basic-save-buffer)
          (kill-buffer)))))
 
-
 (defun util/increment-version (buf &optional place)
   "Increment version number in buffer BUF.
 
@@ -527,9 +525,6 @@ update the version also."
                     (util/increment-version (current-buffer)
                                             (and current-prefix-arg (numberp current-prefix-arg)))))
                 modified-files)))))
-
-
-
 
 ;; `package' functions
 
@@ -720,7 +715,7 @@ If a region is active then get all posssible in the region."
         (cdr (assq :url (package-desc-extras  pkg-desc)))))))
 
 
-;; IO I guess?
+;; `IO' I guess?
 
 (defun util/read-if-nil (sym val &optional prompt)
   "Read from minibuffer if SYM is nil with default value VAL.
@@ -735,7 +730,7 @@ other return types or should convert to appropriate type."
                      (if (string-empty-p read) val read)))))
 
 
-;; Grep
+;; `grep'
 
 (defun util/rgrep-default-search (regexp)
   "`rgrep' for REGEXP in current directory for files with current extension.
@@ -777,7 +772,24 @@ See also `util/ffip-grep-git-files' and `util/ffip-grep-default'."
    (car (occur-read-primary-args))))
 
 
-;; Editing and text manipulation
+;; `edit' and `text' manipulation
+
+(defun util/bounds-of-word-at-point ()
+  (if (region-active-p)
+      (let ((len-reg-bounds (length (region-bounds))))
+        (if (> len-reg-bounds 1)
+            (user-error "Non contiguous regions not supported")
+          (car (region-bounds))))
+    (cons (save-excursion
+            (re-search-backward "[[:space:],]+" (point-at-bol) t 1)
+            (1+ (point)))
+          (save-excursion
+            (if (looking-at "[[:space:]]")
+                (if (re-search-forward "[^[:space:]]" (point-at-eol) t 1)
+                    (- (point) 2)
+                  (point))
+              (re-search-forward "[^[:space:]]+" (point-at-eol) t 1)
+              (point))))))
 
 (defun util/insert (&rest args)
   "Insert ARGS as strings in current buffer."
@@ -914,8 +926,7 @@ word."
             (replace-match "\\1\\2"))))))
 
 ;; CHECK: Would this be same as `util/compress-newlines'?
-(defun util/chomp-newlines ())
-
+(defun _util/chomp-newlines ())
 
 (defun util/compress-newlines-subr (num-newlines &optional uniformp)
   "Subroutine for `util/compress-newlines' and `util/compress-newlines-uniform'.
@@ -1012,12 +1023,58 @@ Stop words list is `util/stop-words'."
 
 ;; url
 
+(defun util/url-join (&rest elements)
+  "Join ELEMENTS with a single \"/\" in a url."
+  (string-join (-remove #'string-empty-p
+                        (mapcar (lambda (x) (thread-last
+                                              x
+                                              (string-remove-prefix "/")
+                                              (string-remove-suffix "/")))
+                                elements))
+               "/"))
+
 (defun util/url-buffer-string (buf)
   "Retrieve string from a buffer BUF retrieved by `url-*' function."
   (with-current-buffer buf
     (goto-char (point-min))
     (re-search-forward "\r?\n\r?\n")
     (buffer-substring-no-properties (point) (point-max))))
+
+(defun util/url-post-json-synchronously (url data)
+  "Send an HTTP POST with JSON data request to URL.
+QUERIES is a list of strings which is encoded as json.  The
+request is sent with content-type as application/json.
+
+CALLBACK is passed as an argument to
+`ref-man--parse-json-callback' after the URL is retrieved.
+`ref-man--parse-json-callback' decodes the JSON data to elisp
+structures and then calls CALLBACK on it."
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")))
+        (url-request-method "POST")
+        (url-request-data
+         (encode-coding-string (json-encode data) 'utf-8)))
+    (util/url-buffer-string (url-retrieve-synchronously url))))
+
+(defun util/post-json-callback (status _url callback)
+  "Callback to parse a response buffer as JSON.
+STATUS is HTTP status, URL the called url, and CALLBACK is the
+callback which will be called after parsing the JSON data."
+  (goto-char (point-min))
+  (forward-paragraph)
+  (apply callback (list status (json-read))))
+
+(defun util/url-post-json-async (url data callback)
+  "Send an http post request with json DATA request to URL.
+The request is sent with content-type as application/json.
+
+Call function CALLBACK on response."
+  (let ((url-request-extra-headers
+         `(("Content-Type" . "application/json")))
+        (url-request-method "POST")
+        (url-request-data
+         (encode-coding-string (json-encode data) 'utf-8)))
+    (url-retrieve url #'util/post-json-callback (list url callback))))
 
 ;; Buffers and windows
 
